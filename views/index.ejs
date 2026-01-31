@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title><%= title %></title>
+    <script src="/static/htmx.min.js"></script>
+    <link rel="stylesheet" href="/static/style.css" />
+    <script>
+      // Memory-only password handling - never persisted
+      let currentPassword = null;
+
+      document.addEventListener('DOMContentLoaded', function () {
+        // Add password to all HTMX requests
+        document.body.addEventListener('htmx:configRequest', function (event) {
+          if (currentPassword) {
+            event.detail.headers['X-User-Password'] = currentPassword;
+          }
+        });
+      });
+
+      function storePassword() {
+        currentPassword = document.getElementById('password-input').value;
+      }
+
+      // Clear password on page unload for security
+      window.addEventListener('beforeunload', function () {
+        currentPassword = null;
+      });
+
+      // Simple toggle for service name editing
+      function toggleServiceEdit(serviceName) {
+        const textSpan = document.querySelector(`[data-service-name="${serviceName}"]`);
+        const editForm = document.querySelector(`[data-service-edit="${serviceName}"]`);
+        textSpan.style.display = textSpan.style.display === 'none' ? 'inline' : 'none';
+        editForm.style.display = editForm.style.display === 'none' ? 'flex' : 'none';
+        if (editForm.style.display === 'flex') {
+          editForm.querySelector('input').focus();
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <div class="container">
+      <h1><%= title %></h1>
+      <p class="subtitle">Securely manage your Docker secrets</p>
+
+      <section class="password-section">
+        <% if (oauth2Enabled) { %>
+          <h2>Sign In</h2>
+          <% if (isAuthenticated) { %>
+            <p class="info-text success">
+              ✓ You are authenticated via <%= oauth2ProviderName %>
+            </p>
+            <div class="oauth-actions">
+              <a href="/auth/logout" class="btn btn-secondary">Sign Out</a>
+            </div>
+          <% } else { %>
+            <p class="info-text">
+              Sign in with your <%= oauth2ProviderName %> account to access Docker Simple Secrets.
+            </p>
+            <div class="oauth-actions">
+              <a href="/auth/oauth2" class="btn btn-primary oauth-btn">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
+                  <polyline points="10 17 15 12 10 7"></polyline>
+                  <line x1="15" y1="12" x2="3" y2="12"></line>
+                </svg>
+                Sign in with <%= oauth2ProviderName %>
+              </a>
+            </div>
+          <% } %>
+
+          <% if (isAuthenticated) { %>
+            <div class="divider">
+              <span>Enter Password to Access Secrets</span>
+            </div>
+
+            <p class="info-text">
+              Your password is kept in memory only and cleared when you close the tab.
+            </p>
+
+            <form id="password-form" hx-post="<%= passwordExists ? '/verify-password' : '/verify-password-setup' %>" hx-target="#password-result" hx-swap="innerHTML" onsubmit="storePassword()">
+              <div class="input-group">
+                <input
+                  type="password"
+                  name="password"
+                  id="password-input"
+                  placeholder="<%= passwordExists ? 'Enter your password...' : 'Set your password...' %>"
+                  required
+                  class="input password-input"
+                  autocomplete="off"
+                />
+                <button type="submit" class="btn btn-primary">
+                  <% if (passwordExists) { %>
+                    <% if (tmpfsExists) { %>
+                      Submit
+                    <% } else { %>
+                      🚀 Deploy
+                    <% } %>
+                  <% } else { %>
+                    Set Password
+                  <% } %>
+                </button>
+              </div>
+            </form>
+
+            <div id="password-result" class="result"></div>
+          <% } %>
+        <% } else { %>
+          <h2><%= passwordExists ? 'Enter Password' : 'Set Password' %></h2>
+          <p class="info-text">
+            Your password is kept in memory only and cleared when you close the tab. Rate limiting protects against brute force attacks.
+          </p>
+
+          <form id="password-form" hx-post="<%= passwordExists ? '/verify-password' : '/verify-password-setup' %>" hx-target="#password-result" hx-swap="innerHTML" onsubmit="storePassword()">
+            <div class="input-group">
+              <input
+                type="password"
+                name="password"
+                id="password-input"
+                placeholder="<%= passwordExists ? 'Enter your password...' : 'Set your password...' %>"
+                required
+                class="input password-input"
+                autocomplete="off"
+              />
+              <button type="submit" class="btn btn-primary">
+                <% if (passwordExists) { %>
+                  <% if (tmpfsExists) { %>
+                    Submit
+                  <% } else { %>
+                    🚀 Deploy
+                  <% } %>
+                <% } else { %>
+                  Set Password
+                <% } %>
+              </button>
+            </div>
+          </form>
+
+          <div id="password-result" class="result"></div>
+        <% } %>
+      </section>
+    </div>
+  </body>
+</html>

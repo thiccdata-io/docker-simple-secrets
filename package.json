@@ -1,0 +1,40 @@
+{
+  "name": "express-htmx-app",
+  "version": "1.0.0",
+  "description": "Express + HTMX web application",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc && mkdir -p static && cp node_modules/htmx.org/dist/htmx.min.js static/",
+    "start": "NODE_ENV=production node dist/server.js",
+    "dev": "NODE_ENV=development node -r dotenv/config -r ts-node/register --watch src/server.ts",
+    "watch": "tsc --watch"
+  },
+  "keywords": [
+    "express",
+    "htmx",
+    "web",
+    "typescript"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "ejs": "^3.1.9",
+    "express": "^4.18.2",
+    "express-session": "^1.19.0",
+    "htmx.org": "^1.9.10",
+    "passport": "^0.7.0",
+    "passport-oauth2": "^1.8.0"
+  },
+  "devDependencies": {
+    "@types/ejs": "^3.1.5",
+    "@types/express": "^4.17.21",
+    "@types/express-session": "^1.18.2",
+    "@types/node": "^20.10.0",
+    "@types/passport": "^1.0.17",
+    "@types/passport-oauth2": "^1.8.0",
+    "dotenv": "^17.2.3",
+    "ts-node": "^10.9.2",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.3.3"
+  }
+}

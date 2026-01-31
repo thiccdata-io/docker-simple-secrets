@@ -1,0 +1,118 @@
+<% if (services.length === 0) { %>
+  <p class="empty-message">No services found. Create your first service to get started!</p>
+<% } else { %>
+  <% services.forEach(function(service) { %>
+    <div class="service-item">
+      <div class="service-header">
+        <div class="service-name">
+          <span class="icon">📁</span>
+          <span class="service-name-text" data-service-name="<%= service.name %>" onclick="toggleServiceEdit('<%= service.name %>')"><%= service.name %></span>
+          <form 
+            class="service-name-edit" 
+            data-service-edit="<%= service.name %>"
+            style="display: none;"
+            hx-put="/services/<%= service.name %>"
+            hx-target="#services-list"
+            hx-swap="innerHTML">
+            <input 
+              type="text" 
+              name="newName" 
+              value="<%= service.name %>" 
+              class="input"
+              pattern="[a-zA-Z0-9_-]+"
+              title="Only letters, numbers, hyphens, and underscores allowed"
+              required />
+            <button type="submit" class="btn btn-small btn-primary">Save</button>
+            <button type="button" class="btn btn-small btn-secondary" onclick="toggleServiceEdit('<%= service.name %>')">Cancel</button>
+          </form>
+        </div>
+        <div class="service-actions">
+          <button 
+            class="btn btn-small btn-secondary"
+            onclick="document.getElementById('new-secret-form-<%= service.name %>').style.display='block'">
+            + New Secret
+          </button>
+          <button 
+            class="btn btn-small btn-secondary"
+            onclick="document.getElementById('bulk-import-form-<%= service.name %>').style.display='block'">
+            📥 Bulk Import
+          </button>
+          <button
+            class="btn btn-small btn-danger"
+            hx-delete="/services/<%= service.name %>"
+            hx-target="#services-list"
+            hx-swap="innerHTML"
+            hx-confirm="Are you sure you want to delete the service '<%= service.name %>' and all its secrets? This action cannot be undone.">
+            🗑️ Delete
+          </button>
+        </div>
+      </div>
+
+      <div id="new-secret-form-<%= service.name %>" class="form-section secret-form" style="display: none;">
+        <form hx-post="/services/<%= service.name %>/secrets" hx-target="#services-list" hx-swap="innerHTML" hx-on::after-request="this.reset(); this.parentElement.style.display='none'">
+          <input 
+            type="text" 
+            name="secretName" 
+            placeholder="Secret name (e.g., 'password')" 
+            required
+            class="input input-small" />
+          <input 
+            type="password" 
+            name="secretValue" 
+            placeholder="Secret value" 
+            required
+            class="input input-small" />
+          <button type="submit" class="btn btn-primary btn-small">Save</button>
+          <button type="button" class="btn btn-secondary btn-small" onclick="this.parentElement.parentElement.style.display='none'">Cancel</button>
+        </form>
+      </div>
+
+      <div id="bulk-import-form-<%= service.name %>" class="form-section bulk-import-form" style="display: none;">
+        <h4>Bulk Import .env File</h4>
+        <p class="info-text-small">Paste your .env file content below. Format: KEY=VALUE (one per line)</p>
+        <form hx-post="/services/<%= service.name %>/bulk-import" hx-target="#services-list" hx-swap="innerHTML" hx-on::after-request="this.reset(); this.parentElement.style.display='none'">
+          <textarea 
+            name="envContent" 
+            placeholder="DATABASE_URL=postgres://...&#10;API_KEY=secret123&#10;DEBUG=true" 
+            required
+            rows="8"
+            class="input textarea-input"></textarea>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary btn-small" hx-disabled-elt="this">
+              <span class="btn-text">Import Secrets</span>
+              <span class="btn-loader" style="display: none;">⏳ Importing...</span>
+            </button>
+            <button type="button" class="btn btn-secondary btn-small" onclick="this.parentElement.parentElement.parentElement.style.display='none'">Cancel</button>
+          </div>
+        </form>
+      </div>
+
+      <% if (service.secrets.length === 0) { %>
+        <p class="empty-message-small">No secrets yet. Add your first secret above.</p>
+      <% } else { %>
+        <ul class="secrets-list">
+          <% service.secrets.forEach(function(secret) { %>
+            <li class="secret-item">
+              <span class="icon">📄</span>
+              <button 
+                class="secret-name-btn"
+                hx-get="/services/<%= service.name %>/secrets/<%= secret.name %>"
+                hx-target="#secret-value-<%= service.name %>-<%= secret.name %>"
+                hx-swap="innerHTML">
+                <%= secret.name %>
+              </button>
+              <% if (!secret.isDeployed) { %>
+                <span class="deployment-status status-undeployed" title="Not deployed yet">⚠️</span>
+              <% } else if (secret.hasChanges) { %>
+                <span class="deployment-status status-changed" title="Changes not deployed">🔄</span>
+              <% } else { %>
+                <span class="deployment-status status-deployed" title="Deployed and up to date">✓</span>
+              <% } %>
+              <div id="secret-value-<%= service.name %>-<%= secret.name %>" class="secret-value-container"></div>
+            </li>
+          <% }); %>
+        </ul>
+      <% } %>
+    </div>
+  <% }); %>
+<% } %>
