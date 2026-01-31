@@ -84,9 +84,9 @@ const shutdown = async (signal: string) => {
       const fullPath = path.join(DEPLOY_PATH, entry.name);
       if (entry.isDirectory()) {
         await fs.rm(fullPath, { recursive: true, force: true });
-      } else {
-        await fs.unlink(fullPath);
+        continue;
       }
+      await fs.unlink(fullPath);
     }
     console.log('✓ Secrets directory cleaned');
   } catch (err) {

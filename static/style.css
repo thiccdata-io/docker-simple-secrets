@@ -342,7 +342,8 @@ h2 {
 
 form {
   display: flex;
-  align-items: center;
+  flex-direction: row;
+  padding-bottom: 1rem;
 }
 
 .password-store-section {
@@ -429,6 +430,7 @@ form {
   gap: 0.5rem;
   align-items: center;
   flex: 1;
+  flex-direction: row;
   min-width: 0;
 }
 
@@ -514,6 +516,11 @@ form {
   animation: slideIn 0.3s ease;
 }
 
+.secret-edit-form {
+  display: flex;
+  flex-direction: column;
+}
+
 .secret-edit-input {
   width: 100%;
   padding: 0.75rem;
@@ -521,10 +528,18 @@ form {
   border-radius: 6px;
   font-family: 'Monaco', 'Courier New', monospace;
   font-size: 0.875rem;
+  line-height: 1.5;
   background: #2d2d2d;
   color: #f8f8f2;
   resize: vertical;
-  min-height: 100px;
+  min-height: 500px;
+  max-height: 80vh;
+  tab-size: 2;
+  -moz-tab-size: 2;
+  overflow-y: auto;
+  overflow-x: auto;
+  white-space: pre;
+  word-wrap: normal;
 }
 
 .secret-edit-input:focus {

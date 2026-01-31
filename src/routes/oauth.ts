@@ -6,16 +6,7 @@ const router = Router();
 
 router.get('/auth/oauth2', (req: Request, res: Response, next: any) => {
   if (!isOAuth2Configured()) {
-    return res.status(503).send(`
-      <html>
-        <head><title>OAuth2 Not Configured</title></head>
-        <body style="font-family: sans-serif; padding: 2rem;">
-          <h1>OAuth2 Not Configured</h1>
-          <p>OAuth2 authentication is not yet configured. Please deploy your OAuth2 secrets first.</p>
-          <a href="/" style="display: inline-block; margin-top: 1rem; padding: 0.5rem 1rem; background: #667eea; color: white; text-decoration: none; border-radius: 4px;">Back to Home</a>
-        </body>
-      </html>
-    `);
+    return res.status(503).render('oauth2_not_configured');
   }
   passport.authenticate('oauth2')(req, res, next);
 });
@@ -29,17 +20,7 @@ router.get('/auth/oauth2/callback', (req: Request, res: Response, next: any) => 
     if (err) {
       console.error('OAuth2 authentication error:', err);
       console.error('Error details:', JSON.stringify(err, null, 2));
-      return res.send(`
-        <html>
-          <head><title>OAuth2 Error</title></head>
-          <body style="font-family: sans-serif; padding: 2rem;">
-            <h1>OAuth2 Authentication Failed</h1>
-            <p><strong>Error:</strong> ${err.message || 'Unknown error'}</p>
-            <pre style="background: #f5f5f5; padding: 1rem; border-radius: 4px; overflow: auto;">${JSON.stringify(err, null, 2)}</pre>
-            <a href="/" style="display: inline-block; margin-top: 1rem; padding: 0.5rem 1rem; background: #667eea; color: white; text-decoration: none; border-radius: 4px;">Back to Home</a>
-          </body>
-        </html>
-      `);
+      return res.render('oauth2_error', { errorMessage: err.message || 'Unknown error', errorDetails: JSON.stringify(err, null, 2) });
     }
     if (!user) {
       console.error('OAuth2 authentication failed: no user returned');

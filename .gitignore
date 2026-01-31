@@ -4,3 +4,5 @@ run
 .DS_Store
 .env
 dist
+static
+!static/style.css

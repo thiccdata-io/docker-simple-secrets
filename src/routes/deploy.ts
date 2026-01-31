@@ -8,6 +8,7 @@ import { validatePassword, withPassphraseFile, calculateMD5 } from '../utils/gpg
 import { buildServicesTree } from '../utils/services';
 import { PASSWORD_STORE_PATH, DEPLOY_PATH, OAUTH2_ENABLED } from '../utils/config';
 import { DeployStats } from '../utils/types';
+import { renderAlert } from '../utils/render';
 
 const execAsync = promisify(exec);
 const router = Router();
@@ -16,13 +17,13 @@ router.post('/', isAuthenticated, async (req: Request, res: Response) => {
   const password = req.headers['x-user-password'] as string;
 
   if (!password) {
-    return res.status(401).send('<div class="alert alert-error">Password required</div>');
+    return renderAlert(res, 'error', 'Password required', 401);
   }
 
   try {
     const validation = await validatePassword(password);
     if (!validation.success) {
-      return res.status(401).send('<div class="alert alert-error">Invalid password</div>');
+      return renderAlert(res, 'error', 'Invalid password', 401);
     }
 
     await fs.mkdir(DEPLOY_PATH, { recursive: true });
@@ -31,62 +32,62 @@ router.post('/', isAuthenticated, async (req: Request, res: Response) => {
     const deployStats: DeployStats = { deployed: 0, updated: 0, skipped: 0, deleted: 0 };
     const validSecrets = new Set<string>();
 
-    for (const service of services) {
-      const serviceDeployPath = path.join(DEPLOY_PATH, service.name);
-      await fs.mkdir(serviceDeployPath, { recursive: true });
+    // Process all services in parallel
+    await Promise.all(
+      services.map(async service => {
+        const serviceDeployPath = path.join(DEPLOY_PATH, service.name);
+        await fs.mkdir(serviceDeployPath, { recursive: true });
 
-      for (const secret of service.secrets) {
-        try {
-          const secretPath = path.join(PASSWORD_STORE_PATH, service.name, `${secret.name}.gpg`);
-          const deployFilePath = path.join(serviceDeployPath, secret.name);
-          const md5FilePath = path.join(serviceDeployPath, `${secret.name}.md5`);
+        // Process all secrets within a service in parallel
+        const results = await Promise.allSettled(
+          service.secrets.map(async secret => {
+            const secretPath = path.join(PASSWORD_STORE_PATH, service.name, `${secret.name}.gpg`);
+            const deployFilePath = path.join(serviceDeployPath, secret.name);
+            const md5FilePath = path.join(serviceDeployPath, `${secret.name}.md5`);
 
-          validSecrets.add(`${service.name}/${secret.name}`);
+            validSecrets.add(`${service.name}/${secret.name}`);
 
-          const currentHash = await calculateMD5(secretPath);
+            // Calculate MD5 hash
+            const currentHash = await calculateMD5(secretPath);
 
-          const needsUpdate = await (async () => {
-            try {
-              const existingHash = (await fs.readFile(md5FilePath, 'utf-8')).trim();
-              if (existingHash === currentHash) {
-                deployStats.skipped++;
-                return false;
+            // Check if update is needed
+            const existingHash = await (async (): Promise<string | null> => {
+              try {
+                return (await fs.readFile(md5FilePath, 'utf-8')).trim();
+              } catch {
+                return null;
               }
-              return true;
-            } catch {
-              return true;
-            }
-          })();
+            })();
 
-          if (needsUpdate) {
+            if (existingHash === currentHash) {
+              return { status: 'skipped' as const };
+            }
+
+            // Check if was previously deployed
+            const wasDeployed = existingHash !== null;
+
+            // Decrypt and deploy
             const { stdout } = await withPassphraseFile(password, async passphraseFile => {
               return await execAsync(`gpg --batch --yes --passphrase-file ${passphraseFile} --decrypt ${secretPath}`);
             });
 
-            await fs.writeFile(deployFilePath, stdout.trim());
+            // Write both files in parallel
+            await Promise.all([fs.writeFile(deployFilePath, stdout.trim()), fs.writeFile(md5FilePath, currentHash)]);
 
-            const wasDeployed = await (async () => {
-              try {
-                await fs.access(md5FilePath);
-                return true;
-              } catch {
-                return false;
-              }
-            })();
+            return { status: wasDeployed ? ('updated' as const) : ('deployed' as const) };
+          }),
+        );
 
-            await fs.writeFile(md5FilePath, currentHash);
-
-            if (wasDeployed) {
-              deployStats.updated++;
-            } else {
-              deployStats.deployed++;
-            }
+        // Aggregate results
+        for (const result of results) {
+          if (result.status === 'fulfilled') {
+            deployStats[result.value.status]++;
+          } else {
+            console.error(`Failed to deploy secret:`, result.reason);
           }
-        } catch (err) {
-          console.error(`Failed to deploy ${service.name}/${secret.name}:`, err);
         }
-      }
-    }
+      }),
+    );
 
     const entrypointPath = path.join(__dirname, '..', 'entrypoint.sh');
     try {
@@ -97,27 +98,37 @@ router.post('/', isAuthenticated, async (req: Request, res: Response) => {
       console.error('Failed to copy entrypoint script:', err);
     }
 
+    // Clean up old deployments in parallel
     try {
       const deployedServices = await fs.readdir(DEPLOY_PATH, { withFileTypes: true });
-      for (const deployedService of deployedServices) {
-        if (deployedService.isDirectory()) {
+      const cleanupOperations = deployedServices
+        .filter(deployedService => deployedService.isDirectory())
+        .map(async deployedService => {
           const servicePath = path.join(DEPLOY_PATH, deployedService.name);
           const deployedFiles = await fs.readdir(servicePath, { withFileTypes: true });
 
-          for (const file of deployedFiles) {
-            if (file.isFile() && !file.name.endsWith('.md5')) {
+          const deleteOperations = deployedFiles
+            .filter(file => file.isFile() && !file.name.endsWith('.md5'))
+            .map(async file => {
               const secretName = file.name;
               const secretKey = `${deployedService.name}/${secretName}`;
 
               if (!validSecrets.has(secretKey)) {
-                await fs.unlink(path.join(servicePath, file.name));
-                await fs.unlink(path.join(servicePath, `${secretName}.md5`)).catch(() => {});
-                deployStats.deleted++;
+                await Promise.allSettled([
+                  fs.unlink(path.join(servicePath, file.name)),
+                  fs.unlink(path.join(servicePath, `${secretName}.md5`)),
+                ]);
+                return true;
               }
-            }
-          }
-        }
-      }
+              return false;
+            });
+
+          const results = await Promise.all(deleteOperations);
+          return results.filter(deleted => deleted).length;
+        });
+
+      const deleteCounts = await Promise.all(cleanupOperations);
+      deployStats.deleted = deleteCounts.reduce((sum, count) => sum + count, 0);
     } catch (err) {
       console.error('Failed to clean up old deployments:', err);
     }
@@ -155,19 +166,7 @@ router.post('/', isAuthenticated, async (req: Request, res: Response) => {
             console.log('✓ OAuth2 configured successfully');
             console.log('⚠️  Please refresh the page to use SSO authentication');
 
-            res.send(`
-              <div id="services-list">
-                <div class="alert alert-success">${statusMessage}</div>
-                <div class="alert alert-info" style="margin-top: 1rem;">
-                  <h3>🔐 OAuth2 Authentication Enabled</h3>
-                  <p>Your secrets have been deployed and OAuth2 has been configured.</p>
-                  <p><strong>Please refresh this page to authenticate with your identity provider.</strong></p>
-                  <button onclick="window.location.reload()" style="margin-top: 1rem; padding: 0.5rem 1rem; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">
-                    Refresh Page
-                  </button>
-                </div>
-              </div>
-            `);
+            res.render('partials/oauth2_enabled', { statusMessage });
             console.log('');
             return;
           } else {
@@ -188,14 +187,9 @@ router.post('/', isAuthenticated, async (req: Request, res: Response) => {
       });
     });
 
-    res.send(`
-      <div id="services-list">
-        <div class="alert alert-success">${statusMessage}</div>
-        ${servicesListHtml}
-      </div>
-    `);
+    res.render('partials/deploy_result', { statusMessage, servicesListHtml });
   } catch (error: any) {
-    res.status(500).send(`<div class="alert alert-error">Failed to deploy: ${error.message}</div>`);
+    renderAlert(res, 'error', `Failed to deploy: ${error.message}`);
   }
 });
 

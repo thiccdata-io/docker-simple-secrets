@@ -4,9 +4,10 @@ import path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { isAuthenticated } from '../utils/auth';
-import { withPassphraseFile, validatePassword } from '../utils/gpg';
+import { withPassphraseFile, validatePassword, encryptSecret } from '../utils/gpg';
 import { buildServicesTree } from '../utils/services';
 import { PASSWORD_STORE_PATH } from '../utils/config';
+import { renderAlert, renderAlertAsync } from '../utils/render';
 
 const execAsync = promisify(exec);
 const router = Router();
@@ -18,13 +19,11 @@ router.post('/:serviceName/secrets', isAuthenticated, async (req: Request, res: 
   const password = req.headers['x-user-password'] as string;
 
   if (!secretName || !secretValue) {
-    return res.status(400).send('<div class="alert alert-error">Secret name and value are required</div>');
+    return renderAlert(res, 'error', 'Secret name and value are required', 400);
   }
 
   if (!/^[a-zA-Z0-9_-]+$/.test(secretName)) {
-    return res
-      .status(400)
-      .send('<div class="alert alert-error">Secret name can only contain letters, numbers, hyphens, and underscores</div>');
+    return renderAlert(res, 'error', 'Secret name can only contain letters, numbers, hyphens, and underscores', 400);
   }
 
   if (!password) {
@@ -38,16 +37,12 @@ router.post('/:serviceName/secrets', isAuthenticated, async (req: Request, res: 
     const secretDir = path.dirname(secretPath);
     await fs.mkdir(secretDir, { recursive: true });
 
-    await withPassphraseFile(password, async passphraseFile => {
-      await execAsync(
-        `echo "${secretValue.replace(/"/g, '\\"')}" | gpg --batch --yes --passphrase-file ${passphraseFile} -c --cipher-algo AES256 > ${secretPath}`,
-      );
-    });
+    await encryptSecret(secretValue, password, secretPath);
 
     const services = await buildServicesTree();
     res.render('partials/services_list', { services });
   } catch (error: any) {
-    res.status(500).send(`<div class="alert alert-error">Failed to create secret: ${error.message}</div>`);
+    renderAlert(res, 'error', `Failed to create secret: ${error.message}`);
   }
 });
 
@@ -58,11 +53,11 @@ router.post('/:serviceName/bulk-import', isAuthenticated, async (req: Request, r
   const password = req.headers['x-user-password'] as string;
 
   if (!envContent) {
-    return res.status(400).send('<div class="alert alert-error">.env content is required</div>');
+    return renderAlert(res, 'error', '.env content is required', 400);
   }
 
   if (!password) {
-    return res.status(401).send('<div class="alert alert-error">Password required</div>');
+    return renderAlert(res, 'error', 'Password required', 401);
   }
 
   try {
@@ -89,7 +84,7 @@ router.post('/:serviceName/bulk-import', isAuthenticated, async (req: Request, r
     }
 
     if (secrets.length === 0) {
-      return res.status(400).send('<div class="alert alert-error">No valid secrets found in .env content</div>');
+      return renderAlert(res, 'error', 'No valid secrets found in .env content', 400);
     }
 
     await fs.mkdir(PASSWORD_STORE_PATH, { recursive: true });
@@ -100,11 +95,7 @@ router.post('/:serviceName/bulk-import', isAuthenticated, async (req: Request, r
     for (const secret of secrets) {
       try {
         const secretPath = path.join(serviceDir, `${secret.name}.gpg`);
-        await withPassphraseFile(password, async passphraseFile => {
-          await execAsync(
-            `echo "${secret.value.replace(/"/g, '\\"')}" | gpg --batch --yes --passphrase-file ${passphraseFile} -c --cipher-algo AES256 > ${secretPath}`,
-          );
-        });
+        await encryptSecret(secret.value, password, secretPath);
         importStats.count++;
       } catch (err) {
         errors.push(`Failed to import ${secret.name}: ${err}`);
@@ -124,19 +115,19 @@ router.post('/:serviceName/bulk-import', isAuthenticated, async (req: Request, r
     });
 
     if (errors.length > 0) {
-      res.send(`
-        <div class="alert alert-warning">⚠️ Imported ${importStats.count}/${secrets.length} secrets. Some errors occurred.</div>
-        ${servicesList}
-      `);
+      const alertHtml = await renderAlertAsync(
+        res,
+        'warning',
+        `⚠️ Imported ${importStats.count}/${secrets.length} secrets. Some errors occurred.`,
+      );
+      res.render('partials/bulk_import_result', { alertHtml, servicesListHtml: servicesList });
       return;
     }
 
-    res.send(`
-      <div class="alert alert-success">✓ Successfully imported ${importStats.count} secrets</div>
-      ${servicesList}
-    `);
+    const alertHtml = await renderAlertAsync(res, 'success', `✓ Successfully imported ${importStats.count} secrets`);
+    res.render('partials/bulk_import_result', { alertHtml, servicesListHtml: servicesList });
   } catch (error: any) {
-    res.status(500).send(`<div class="alert alert-error">Failed to import secrets: ${error.message}</div>`);
+    renderAlert(res, 'error', `Failed to import secrets: ${error.message}`);
   }
 });
 
@@ -146,7 +137,7 @@ router.get('/:serviceName/secrets/:secretName', isAuthenticated, async (req: Req
   const password = req.headers['x-user-password'] as string;
 
   if (!password) {
-    return res.status(401).send('<div class="alert alert-error">Password required</div>');
+    return renderAlert(res, 'error', 'Password required', 401);
   }
 
   try {
@@ -157,7 +148,7 @@ router.get('/:serviceName/secrets/:secretName', isAuthenticated, async (req: Req
 
     res.render('partials/secret_view', { serviceName, secretName, secretValue: stdout.trim(), updated: false });
   } catch (error: any) {
-    res.status(500).send(`<div class="alert alert-error">Failed to decrypt secret: ${error.message}</div>`);
+    renderAlert(res, 'error', `Failed to decrypt secret: ${error.message}`);
   }
 });
 
@@ -168,25 +159,21 @@ router.put('/:serviceName/secrets/:secretName', isAuthenticated, async (req: Req
   const password = req.headers['x-user-password'] as string;
 
   if (!secretValue) {
-    return res.status(400).send('<div class="alert alert-error">Secret value is required</div>');
+    return renderAlert(res, 'error', 'Secret value is required', 400);
   }
 
   if (!password) {
-    return res.status(401).send('<div class="alert alert-error">Password required</div>');
+    return renderAlert(res, 'error', 'Password required', 401);
   }
 
   try {
     const secretPath = path.join(PASSWORD_STORE_PATH, serviceName, `${secretName}.gpg`);
 
-    await withPassphraseFile(password, async passphraseFile => {
-      await execAsync(
-        `echo "${secretValue.replace(/"/g, '\\"')}" | gpg --batch --yes --passphrase-file ${passphraseFile} -c --cipher-algo AES256 > ${secretPath}`,
-      );
-    });
+    await encryptSecret(secretValue, password, secretPath);
 
     res.render('partials/secret_view', { serviceName, secretName, secretValue: secretValue.trim(), updated: true });
   } catch (error: any) {
-    res.status(500).send(`<div class="alert alert-error">Failed to update secret: ${error.message}</div>`);
+    renderAlert(res, 'error', `Failed to update secret: ${error.message}`);
   }
 });
 
@@ -196,7 +183,7 @@ router.get('/:serviceName/secrets/:secretName/edit', isAuthenticated, async (req
   const password = req.headers['x-user-password'] as string;
 
   if (!password) {
-    return res.status(401).send('<div class="alert alert-error">Password required</div>');
+    return renderAlert(res, 'error', 'Password required', 401);
   }
 
   try {
@@ -207,7 +194,7 @@ router.get('/:serviceName/secrets/:secretName/edit', isAuthenticated, async (req
 
     res.render('partials/secret_edit', { serviceName, secretName, secretValue: stdout.trim() });
   } catch (error: any) {
-    res.status(500).send(`<div class="alert alert-error">Failed to load secret for editing: ${error.message}</div>`);
+    renderAlert(res, 'error', `Failed to load secret for editing: ${error.message}`);
   }
 });
 
@@ -217,13 +204,13 @@ router.delete('/:serviceName/secrets/:secretName', isAuthenticated, async (req: 
   const password = req.headers['x-user-password'] as string;
 
   if (!password) {
-    return res.status(401).send('<div class="alert alert-error">Password required</div>');
+    return renderAlert(res, 'error', 'Password required', 401);
   }
 
   try {
     const validation = await validatePassword(password);
     if (!validation.success) {
-      return res.status(401).send('<div class="alert alert-error">Invalid password</div>');
+      return renderAlert(res, 'error', 'Invalid password', 401);
     }
 
     const secretPath = path.join(PASSWORD_STORE_PATH, serviceName, `${secretName}.gpg`);
@@ -232,7 +219,7 @@ router.delete('/:serviceName/secrets/:secretName', isAuthenticated, async (req: 
     const services = await buildServicesTree();
     res.render('partials/services_list', { services });
   } catch (error: any) {
-    res.status(500).send(`<div class="alert alert-error">Failed to delete secret: ${error.message}</div>`);
+    renderAlert(res, 'error', `Failed to delete secret: ${error.message}`);
   }
 });
 

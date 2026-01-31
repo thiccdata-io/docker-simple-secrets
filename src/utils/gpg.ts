@@ -66,3 +66,21 @@ export async function calculateMD5(filePath: string): Promise<string> {
     throw new Error(`Failed to calculate MD5: ${error}`);
   }
 }
+
+export async function encryptSecret(value: string, password: string, outputPath: string): Promise<void> {
+  const tempFile = path.join(os.tmpdir(), `secret-${crypto.randomBytes(16).toString('hex')}`);
+  try {
+    // Write secret to temp file to avoid shell interpretation
+    await fs.writeFile(tempFile, value, { mode: 0o600 });
+
+    await withPassphraseFile(password, async passphraseFile => {
+      await execAsync(`gpg --batch --yes --passphrase-file ${passphraseFile} -c --cipher-algo AES256 --output ${outputPath} ${tempFile}`);
+    });
+  } finally {
+    try {
+      await fs.unlink(tempFile);
+    } catch (err) {
+      console.error('Failed to cleanup temp secret file:', err);
+    }
+  }
+}

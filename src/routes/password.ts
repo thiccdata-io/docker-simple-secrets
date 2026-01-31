@@ -4,6 +4,7 @@ import { checkRateLimit, resetRateLimit, isOAuth2Configured } from '../utils/aut
 import { validatePassword, createPasswordValidation } from '../utils/gpg';
 import { buildServicesTree } from '../utils/services';
 import { DEPLOY_PATH } from '../utils/config';
+import { renderAlert } from '../utils/render';
 
 const router = Router();
 
@@ -71,7 +72,7 @@ router.post('/verify-password-setup', async (req: Request, res: Response) => {
 router.post('/verify-password', async (req: Request, res: Response) => {
   // Check OAuth2 authentication first if configured
   if (isOAuth2Configured() && !req.isAuthenticated()) {
-    return res.status(401).send('<div class="alert alert-error">Please authenticate with OAuth2 first</div>');
+    return renderAlert(res, 'error', 'Please authenticate with OAuth2 first', 401);
   }
 
   const { password } = req.body;

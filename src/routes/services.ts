@@ -5,6 +5,7 @@ import { isAuthenticated } from '../utils/auth';
 import { validatePassword } from '../utils/gpg';
 import { buildServicesTree } from '../utils/services';
 import { PASSWORD_STORE_PATH, DEPLOY_PATH } from '../utils/config';
+import { renderAlert } from '../utils/render';
 
 const router = Router();
 
@@ -13,13 +14,11 @@ router.post('/', isAuthenticated, async (req: Request, res: Response) => {
   const { serviceName } = req.body;
 
   if (!serviceName || serviceName.length === 0) {
-    return res.status(400).send('<div class="alert alert-error">Service name is required</div>');
+    return renderAlert(res, 'error', 'Service name is required', 400);
   }
 
   if (!/^[a-zA-Z0-9_-]+$/.test(serviceName)) {
-    return res
-      .status(400)
-      .send('<div class="alert alert-error">Service name can only contain letters, numbers, hyphens, and underscores</div>');
+    return renderAlert(res, 'error', 'Service name can only contain letters, numbers, hyphens, and underscores', 400);
   }
 
   try {
@@ -29,7 +28,7 @@ router.post('/', isAuthenticated, async (req: Request, res: Response) => {
     const services = await buildServicesTree();
     res.render('partials/services_list', { services });
   } catch (error: any) {
-    res.status(500).send(`<div class="alert alert-error">Failed to create service: ${error.message}</div>`);
+    renderAlert(res, 'error', `Failed to create service: ${error.message}`);
   }
 });
 
@@ -40,23 +39,21 @@ router.put('/:serviceName', isAuthenticated, async (req: Request, res: Response)
   const password = req.headers['x-user-password'] as string;
 
   if (!password) {
-    return res.status(401).send('<div class="alert alert-error">Password required</div>');
+    return renderAlert(res, 'error', 'Password required', 401);
   }
 
   if (!newName || newName.length === 0) {
-    return res.status(400).send('<div class="alert alert-error">New service name is required</div>');
+    return renderAlert(res, 'error', 'New service name is required', 400);
   }
 
   if (!/^[a-zA-Z0-9_-]+$/.test(newName)) {
-    return res
-      .status(400)
-      .send('<div class="alert alert-error">Service name can only contain letters, numbers, hyphens, and underscores</div>');
+    return renderAlert(res, 'error', 'Service name can only contain letters, numbers, hyphens, and underscores', 400);
   }
 
   try {
     const validation = await validatePassword(password);
     if (!validation.success) {
-      return res.status(401).send('<div class="alert alert-error">Invalid password</div>');
+      return renderAlert(res, 'error', 'Invalid password', 401);
     }
 
     const oldPath = path.join(PASSWORD_STORE_PATH, serviceName);
@@ -64,7 +61,7 @@ router.put('/:serviceName', isAuthenticated, async (req: Request, res: Response)
 
     try {
       await fs.access(newPath);
-      return res.status(400).send('<div class="alert alert-error">A service with this name already exists</div>');
+      return renderAlert(res, 'error', 'A service with this name already exists', 400);
     } catch {
       // New name doesn't exist - good to proceed
     }
@@ -82,7 +79,7 @@ router.put('/:serviceName', isAuthenticated, async (req: Request, res: Response)
     const services = await buildServicesTree();
     res.render('partials/services_list', { services });
   } catch (error: any) {
-    res.status(500).send(`<div class="alert alert-error">Failed to rename service: ${error.message}</div>`);
+    renderAlert(res, 'error', `Failed to rename service: ${error.message}`);
   }
 });
 
@@ -92,13 +89,13 @@ router.delete('/:serviceName', isAuthenticated, async (req: Request, res: Respon
   const password = req.headers['x-user-password'] as string;
 
   if (!password) {
-    return res.status(401).send('<div class="alert alert-error">Password required</div>');
+    return renderAlert(res, 'error', 'Password required', 401);
   }
 
   try {
     const validation = await validatePassword(password);
     if (!validation.success) {
-      return res.status(401).send('<div class="alert alert-error">Invalid password</div>');
+      return renderAlert(res, 'error', 'Invalid password', 401);
     }
 
     const servicePath = path.join(PASSWORD_STORE_PATH, serviceName);
@@ -107,7 +104,7 @@ router.delete('/:serviceName', isAuthenticated, async (req: Request, res: Respon
     const services = await buildServicesTree();
     res.render('partials/services_list', { services });
   } catch (error: any) {
-    res.status(500).send(`<div class="alert alert-error">Failed to delete service: ${error.message}</div>`);
+    renderAlert(res, 'error', `Failed to delete service: ${error.message}`);
   }
 });
 
