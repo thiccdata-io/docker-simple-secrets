@@ -52,7 +52,7 @@ export async function loadSecretsFromFilesystem(serviceName: string): Promise<bo
   try {
     const secretsDir = path.join(DEPLOY_PATH, serviceName);
     const entries = await fs.readdir(secretsDir);
-    const secretFiles = entries.filter(file => file.endsWith('.txt'));
+    const secretFiles = entries.filter(file => !file.endsWith('.md5'));
 
     if (secretFiles.length === 0) {
       return false;
@@ -61,7 +61,7 @@ export async function loadSecretsFromFilesystem(serviceName: string): Promise<bo
     console.log(`📦 Loading ${secretFiles.length} secrets for service: ${serviceName}`);
 
     for (const file of secretFiles) {
-      const secretName = path.basename(file, '.txt').toUpperCase();
+      const secretName = file.toUpperCase();
       const secretPath = path.join(secretsDir, file);
       const secretValue = await fs.readFile(secretPath, 'utf-8');
       process.env[secretName] = secretValue.trim();

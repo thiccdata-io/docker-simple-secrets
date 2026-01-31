@@ -38,8 +38,8 @@ router.post('/', isAuthenticated, async (req: Request, res: Response) => {
       for (const secret of service.secrets) {
         try {
           const secretPath = path.join(PASSWORD_STORE_PATH, service.name, `${secret.name}.gpg`);
-          const deployFilePath = path.join(serviceDeployPath, `${secret.name}.txt`);
-          const md5FilePath = path.join(serviceDeployPath, `${secret.name}.txt.md5`);
+          const deployFilePath = path.join(serviceDeployPath, secret.name);
+          const md5FilePath = path.join(serviceDeployPath, `${secret.name}.md5`);
 
           validSecrets.add(`${service.name}/${secret.name}`);
 
@@ -63,7 +63,7 @@ router.post('/', isAuthenticated, async (req: Request, res: Response) => {
               return await execAsync(`gpg --batch --yes --passphrase-file ${passphraseFile} --decrypt ${secretPath}`);
             });
 
-            await fs.writeFile(deployFilePath, stdout);
+            await fs.writeFile(deployFilePath, stdout.trim());
 
             const wasDeployed = await (async () => {
               try {
@@ -105,13 +105,13 @@ router.post('/', isAuthenticated, async (req: Request, res: Response) => {
           const deployedFiles = await fs.readdir(servicePath, { withFileTypes: true });
 
           for (const file of deployedFiles) {
-            if (file.isFile() && file.name.endsWith('.txt')) {
-              const secretName = file.name.replace('.txt', '');
+            if (file.isFile() && !file.name.endsWith('.md5')) {
+              const secretName = file.name;
               const secretKey = `${deployedService.name}/${secretName}`;
 
               if (!validSecrets.has(secretKey)) {
                 await fs.unlink(path.join(servicePath, file.name));
-                await fs.unlink(path.join(servicePath, `${secretName}.txt.md5`)).catch(() => {});
+                await fs.unlink(path.join(servicePath, `${secretName}.md5`)).catch(() => {});
                 deployStats.deleted++;
               }
             }

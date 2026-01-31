@@ -10,7 +10,7 @@ export async function checkSecretDeploymentStatus(
 ): Promise<{ isDeployed: boolean; hasChanges: boolean }> {
   try {
     const secretPath = path.join(PASSWORD_STORE_PATH, serviceName, `${secretName}.gpg`);
-    const md5Path = path.join(DEPLOY_PATH, serviceName, `${secretName}.txt.md5`);
+    const md5Path = path.join(DEPLOY_PATH, serviceName, `${secretName}.md5`);
 
     try {
       await fs.access(md5Path);

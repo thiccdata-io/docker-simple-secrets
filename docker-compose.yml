@@ -17,14 +17,22 @@ services:
     image: postgres:16-alpine
     container_name: example-postgres
     environment:
-      - DSS_SERVICE_NAME=postgres
-      - DSS_SERVICE_CMD=docker-entrypoint.sh postgres
-      # Secrets will be loaded from /var/secrets/postgres/*.txt
-      # Example: POSTGRES_PASSWORD, POSTGRES_USER, POSTGRES_DB
+      # ENV_VAR: /var/secrets/<service_name>/ENV_VAR
+      POSTGRES_PASSWORD_FILE: /var/secrets/postgres/POSTGRES_PASSWORD
     volumes:
       - secrets-volume:/var/secrets:ro
       # - postgres-data:/var/lib/postgresql/data
-    entrypoint: ['/bin/sh', '/var/secrets/entrypoint.sh', 'postgres']
+
+  example-wud:
+    image: getwud/wud
+    container_name: wud
+    environment:
+      DSS_SERVICE_NAME: whatsupdocker
+    entrypoint: ['/bin/sh', '/var/secrets/entrypoint.sh', 'whatsupdocker']
+    command: ['node', 'index']
+    volumes:
+      - secrets-volume:/var/secrets:ro
+      - /var/run/docker.sock:/var/run/docker.sock
 
 volumes:
   secrets-volume:

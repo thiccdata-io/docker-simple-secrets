@@ -12,15 +12,15 @@ shift
 
 # Check if the service secrets directory exists
 if [ -d "/var/secrets/$DSS_SERVICE_NAME" ]; then
-  for secret_file in /var/secrets/$DSS_SERVICE_NAME/*.txt; do
-    # Check if any .txt files actually exist
+  for secret_file in /var/secrets/$DSS_SERVICE_NAME/*; do
+    # Skip .md5 files and check if file exists
     [ -e "$secret_file" ] || continue
+    case "$secret_file" in
+      *.md5) continue ;;
+    esac
 
-    # 1. Get the filename (e.g., DB_PASSWORD.txt)
-    filename=$(basename "$secret_file")
-    
-    # 2. Strip the .txt extension to get the key (e.g., DB_PASSWORD)
-    key="${filename%.txt}"
+    # Get the filename (e.g., DB_PASSWORD)
+    key=$(basename "$secret_file")
     
     # 3. Read the content into a variable
     value=$(cat "$secret_file")

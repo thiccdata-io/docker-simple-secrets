@@ -21,6 +21,7 @@ RUN npm ci --only=production
 
 # Stage 2: Production
 FROM node:20-alpine
+LABEL org.opencontainers.image.source https://github.com/thiccdata-io/docker-simple-secrets
 
 # Install GPG for encryption/decryption
 RUN apk add --no-cache gnupg
