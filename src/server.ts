@@ -14,6 +14,7 @@ import passwordRouter from './routes/password';
 import servicesRouter from './routes/services';
 import secretsRouter from './routes/secrets';
 import deployRouter from './routes/deploy';
+import containerRouter from './routes/container';
 
 const app = express();
 
@@ -67,6 +68,7 @@ app.use(passwordRouter);
 app.use('/services', servicesRouter);
 app.use('/services', secretsRouter);
 app.use('/deploy', deployRouter);
+app.use(containerRouter);
 
 // Start server
 const server = app.listen(PORT, () => {

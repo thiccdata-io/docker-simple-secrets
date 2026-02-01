@@ -91,9 +91,18 @@ router.post('/', isAuthenticated, async (req: Request, res: Response) => {
 
     const entrypointPath = path.join(__dirname, '..', 'entrypoint.sh');
     try {
-      const entrypointContent = await fs.readFile(entrypointPath, 'utf-8');
+      let entrypointContent = await fs.readFile(entrypointPath, 'utf-8');
+
+      // Inject the DSS_API_HOST with the container name
+      const dssServiceName = process.env.DSS_SERVICE_NAME || 'docker-simple-secrets';
+      entrypointContent = entrypointContent.replace(
+        /DSS_API_HOST="\$\{DSS_API_HOST:-[^}]*\}"/,
+        `DSS_API_HOST="\${DSS_API_HOST:-${dssServiceName}}"`,
+      );
+
       const deployEntrypointPath = path.join(DEPLOY_PATH, 'entrypoint.sh');
       await fs.writeFile(deployEntrypointPath, entrypointContent, { mode: 0o755 });
+      console.log(`✓ Deployed entrypoint script (API host: ${dssServiceName})`);
     } catch (err) {
       console.error('Failed to copy entrypoint script:', err);
     }

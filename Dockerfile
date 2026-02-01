@@ -24,9 +24,9 @@ FROM node:20-alpine
 LABEL org.opencontainers.image.source https://github.com/thiccdata-io/docker-simple-secrets
 
 # Install GPG for encryption/decryption
-RUN apk add --no-cache gnupg
+RUN apk add --no-cache gnupg curl
 
-# Create non-root user
+# Create group for file ownership (but run as root for Docker socket access)
 RUN addgroup -g 1001 secrets && \
     adduser -D -u 1001 -G secrets secrets
 
@@ -52,8 +52,8 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 # Set ownership of application files
 RUN chown -R secrets:secrets /app
 
-# Switch to non-root user
-USER secrets
+# Run as root to access Docker socket
+# USER secrets
 
 # Set environment to production
 ENV NODE_ENV=production

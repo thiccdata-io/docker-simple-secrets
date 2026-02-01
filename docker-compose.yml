@@ -11,6 +11,7 @@ services:
     volumes:
       - ./var/data:/var/data
       - secrets-volume:/var/secrets
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     restart: unless-stopped
 
   example-service:
@@ -26,10 +27,7 @@ services:
   example-wud:
     image: getwud/wud
     container_name: wud
-    environment:
-      DSS_SERVICE_NAME: whatsupdocker
     entrypoint: ['/bin/sh', '/var/secrets/entrypoint.sh', 'whatsupdocker']
-    command: ['node', 'index']
     volumes:
       - secrets-volume:/var/secrets:ro
       - /var/run/docker.sock:/var/run/docker.sock
