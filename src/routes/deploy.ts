@@ -9,6 +9,7 @@ import { buildServicesTree } from '../utils/services';
 import { PASSWORD_STORE_PATH, DEPLOY_PATH, OAUTH2_ENABLED } from '../utils/config';
 import { DeployStats } from '../utils/types';
 import { renderAlert } from '../utils/render';
+import { markDeploymentOccurred, generateContainerInfo } from '../utils/container-watcher';
 
 const execAsync = promisify(exec);
 const router = Router();
@@ -89,23 +90,32 @@ router.post('/', isAuthenticated, async (req: Request, res: Response) => {
       }),
     );
 
-    const entrypointPath = path.join(__dirname, '..', 'entrypoint.sh');
+    const entrypointPath = path.join(__dirname, '..', 'dss-entrypoint-wrapper.sh');
     try {
-      let entrypointContent = await fs.readFile(entrypointPath, 'utf-8');
-
-      // Inject the DSS_API_HOST with the container name
-      const dssServiceName = process.env.DSS_SERVICE_NAME || 'docker-simple-secrets';
-      entrypointContent = entrypointContent.replace(
-        /DSS_API_HOST="\$\{DSS_API_HOST:-[^}]*\}"/,
-        `DSS_API_HOST="\${DSS_API_HOST:-${dssServiceName}}"`,
-      );
-
-      const deployEntrypointPath = path.join(DEPLOY_PATH, 'entrypoint.sh');
+      const entrypointContent = await fs.readFile(entrypointPath, 'utf-8');
+      const deployEntrypointPath = path.join(DEPLOY_PATH, 'dss-entrypoint-wrapper.sh');
       await fs.writeFile(deployEntrypointPath, entrypointContent, { mode: 0o755 });
-      console.log(`✓ Deployed entrypoint script (API host: ${dssServiceName})`);
+      console.log(`✓ Deployed entrypoint script`);
     } catch (err) {
       console.error('Failed to copy entrypoint script:', err);
     }
+
+    // Write .container-info files for each service by checking running containers
+    try {
+      console.log('Checking for containers using DSS entrypoint...');
+      const { stdout: containersJson } = await execAsync(
+        `curl -s --unix-socket /var/run/docker.sock "http://localhost/containers/json?all=false"`,
+      );
+      const containers = JSON.parse(containersJson);
+
+      // Generate container info for all running containers in parallel
+      await Promise.all(containers.map((container: any) => generateContainerInfo(container.Id)));
+    } catch (err) {
+      console.error('Failed to write container info files:', err);
+    }
+
+    // Mark that deployment has occurred (enables container watcher)
+    markDeploymentOccurred();
 
     // Clean up old deployments in parallel
     try {

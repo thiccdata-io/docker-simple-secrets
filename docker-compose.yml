@@ -5,7 +5,7 @@ services:
     ports:
       - '3000:3000'
     environment:
-      - OAUTH2_ENABLED=true # This will dynamically load secrets from /var/secrets/$DSS_SERVICE_NAME
+      # - OAUTH2_ENABLED=true # This will dynamically load secrets from /var/secrets/$DSS_SERVICE_NAME
       - DSS_SERVICE_NAME=docker-simple-secrets
       - INSECURE_COOKIES=true # only for testing production when not behind reverse proxy
     volumes:
@@ -27,7 +27,7 @@ services:
   example-wud:
     image: getwud/wud
     container_name: wud
-    entrypoint: ['/bin/sh', '/var/secrets/entrypoint.sh', 'whatsupdocker']
+    entrypoint: ['/bin/sh', '/var/secrets/dss-entrypoint-wrapper.sh', 'whatsupdocker']
     volumes:
       - secrets-volume:/var/secrets:ro
       - /var/run/docker.sock:/var/run/docker.sock

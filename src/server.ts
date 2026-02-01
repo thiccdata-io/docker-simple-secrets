@@ -5,6 +5,7 @@ import passport from 'passport';
 import fs from 'fs/promises';
 import { PORT, SESSION_SECRET, DEPLOY_PATH } from './utils/config';
 import { isOAuth2Configured, configureOAuth2 } from './utils/auth';
+import { startContainerWatcher, stopContainerWatcher } from './utils/container-watcher';
 
 // Import routers
 import healthRouter from './routes/health';
@@ -14,7 +15,6 @@ import passwordRouter from './routes/password';
 import servicesRouter from './routes/services';
 import secretsRouter from './routes/secrets';
 import deployRouter from './routes/deploy';
-import containerRouter from './routes/container';
 
 const app = express();
 
@@ -68,16 +68,26 @@ app.use(passwordRouter);
 app.use('/services', servicesRouter);
 app.use('/services', secretsRouter);
 app.use('/deploy', deployRouter);
-app.use(containerRouter);
 
 // Start server
 const server = app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
+
+  // Start watching for new Docker containers
+  try {
+    startContainerWatcher();
+  } catch (err) {
+    console.error('Failed to start container watcher:', err);
+    console.log('Container auto-detection will not be available');
+  }
 });
 
 // Graceful shutdown handler with cleanup
 const shutdown = async (signal: string) => {
   console.log(`\n${signal} received, shutting down gracefully...`);
+
+  // Stop container watcher
+  stopContainerWatcher();
 
   try {
     console.log('Purging /var/secrets directory...');

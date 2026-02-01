@@ -38,7 +38,7 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package*.json ./
 
 # Copy entrypoint script from source
-COPY src/entrypoint.sh ./dist/entrypoint.sh
+COPY src/dss-entrypoint-wrapper.sh ./dist/dss-entrypoint-wrapper.sh
 
 # Copy static files and views
 COPY static ./static

@@ -3,16 +3,12 @@
 # Require service name as first argument
 if [ -z "$1" ]; then
   echo "Error: Service name required"
-  echo "Usage: entrypoint.sh <service-name> [command...]"
+  echo "Usage: dss-entrypoint-wrapper.sh <service-name> [command...]"
   exit 1
 fi
 
 DSS_SERVICE_NAME="$1"
 shift
-
-# DSS_API_HOST will be injected during deployment, defaults to docker-simple-secrets
-DSS_API_HOST="${DSS_API_HOST:-docker-simple-secrets}"
-DSS_API_PORT="${DSS_API_PORT:-3000}"
 
 # Load secrets as environment variables
 if [ -d "/var/secrets/$DSS_SERVICE_NAME" ]; then
@@ -53,39 +49,37 @@ elif [ $# -gt 0 ]; then
   echo "Using provided command: $*"
   exec "$@"
 else
-  # Try to auto-detect original entrypoint from Docker API
+  # Try to auto-detect original entrypoint from .container-info file
   echo "Auto-detecting original entrypoint..."
   
-  # Get the container hostname (usually matches container name/id)
-  # Allow override via DSS_HOSTNAME environment variable
-  CONTAINER_NAME="${DSS_HOSTNAME:-$(hostname)}"
+  CONTAINER_INFO_FILE="/var/secrets/$DSS_SERVICE_NAME/.container-info"
   
-  # Query the DSS API for container info
-  API_URL="http://${DSS_API_HOST}:${DSS_API_PORT}/api/container/${CONTAINER_NAME}/info"
-  echo "Querying: $API_URL"
+  # Wait for .container-info file to be generated (race condition with container watcher)
+  MAX_WAIT=3
+  WAITED=0
+  while [ ! -f "$CONTAINER_INFO_FILE" ] && [ $WAITED -lt $MAX_WAIT ]; do
+    if [ $WAITED -eq 0 ]; then
+      echo "Waiting for container info file..."
+    fi
+    sleep 1
+    WAITED=$((WAITED + 1))
+  done
   
-  CONTAINER_INFO=$(curl -s "$API_URL" 2>/dev/null)
-  
-  if [ $? -eq 0 ] && [ -n "$CONTAINER_INFO" ]; then
-    # Parse JSON response - extract entrypoint and cmd arrays
-    # We'll use a simple approach that works in basic sh
+  if [ -f "$CONTAINER_INFO_FILE" ]; then
+    echo "Reading container info from $CONTAINER_INFO_FILE"
     
-    # Extract entrypoint array
-    ENTRYPOINT=$(echo "$CONTAINER_INFO" | sed -n 's/.*"entrypoint":\[\([^]]*\)\].*/\1/p')
-    # Extract cmd array  
-    CMD=$(echo "$CONTAINER_INFO" | sed -n 's/.*"cmd":\[\([^]]*\)\].*/\1/p')
+    # Source the container info file to load variables
+    . "$CONTAINER_INFO_FILE"
     
-    # Combine them and clean up JSON formatting
-    FULL_CMD="$ENTRYPOINT $CMD"
-    # Remove quotes and commas
-    FULL_CMD=$(echo "$FULL_CMD" | sed 's/"//g' | sed 's/,/ /g' | sed 's/  */ /g' | sed 's/^ *//;s/ *$//')
+    # Combine entrypoint and cmd
+    FULL_CMD="$ORIGINAL_ENTRYPOINT $ORIGINAL_CMD"
     
     if [ -n "$FULL_CMD" ]; then
       echo "Detected original command: $FULL_CMD"
       exec sh -c "$FULL_CMD"
     fi
   else
-    echo "Failed to query DSS API at $API_URL"
+    echo "Container info file not found at $CONTAINER_INFO_FILE"
   fi
   
   # Fallback: if we couldn't detect the command
@@ -93,8 +87,7 @@ else
   echo "Error: Could not determine command to execute"
   echo "Options:"
   echo "  1. Set DSS_SERVICE_CMD environment variable"
-  echo "  2. Pass command as arguments: entrypoint.sh <service> <command...>"
-  echo "  3. Ensure DSS API is accessible at $DSS_API_HOST:$DSS_API_PORT"
-  echo "  4. Mount Docker socket to DSS container: /var/run/docker.sock"
+  echo "  2. Pass command as arguments: dss-entrypoint-wrapper.sh <service> <command...>"
+  echo "  3. Deploy secrets to generate .container-info file"
   exit 1
 fi
