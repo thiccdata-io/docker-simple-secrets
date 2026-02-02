@@ -8,6 +8,11 @@ export interface Secret {
   path: string;
   hasChanges?: boolean;
   isDeployed?: boolean;
+  mounted?: boolean;
+}
+
+export interface SecretState {
+  mounted: boolean;
 }
 
 export interface RateLimitEntry {

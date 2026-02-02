@@ -2,12 +2,22 @@ import { Router, Request, Response } from 'express';
 import fs from 'fs/promises';
 import path from 'path';
 import { isAuthenticated } from '../utils/auth';
-import { validatePassword } from '../utils/gpg';
+import { validatePassword } from '../utils/crypto';
 import { buildServicesTree } from '../utils/services';
-import { PASSWORD_STORE_PATH, DEPLOY_PATH } from '../utils/config';
+import { SECRETS_STORE_PATH, DEPLOY_PATH } from '../utils/config';
 import { renderAlert } from '../utils/render';
 
 const router = Router();
+
+// Get the services view section
+router.get('/view', isAuthenticated, async (req: Request, res: Response) => {
+  try {
+    const services = await buildServicesTree();
+    res.render('partials/services_section', { services });
+  } catch (error: any) {
+    renderAlert(res, 'error', `Failed to load services: ${error.message}`);
+  }
+});
 
 // Create a new service (directory)
 router.post('/', isAuthenticated, async (req: Request, res: Response) => {
@@ -22,7 +32,7 @@ router.post('/', isAuthenticated, async (req: Request, res: Response) => {
   }
 
   try {
-    const servicePath = path.join(PASSWORD_STORE_PATH, serviceName);
+    const servicePath = path.join(SECRETS_STORE_PATH, serviceName);
     await fs.mkdir(servicePath, { recursive: true });
 
     const services = await buildServicesTree();
@@ -56,8 +66,8 @@ router.put('/:serviceName', isAuthenticated, async (req: Request, res: Response)
       return renderAlert(res, 'error', 'Invalid password', 401);
     }
 
-    const oldPath = path.join(PASSWORD_STORE_PATH, serviceName);
-    const newPath = path.join(PASSWORD_STORE_PATH, newName);
+    const oldPath = path.join(SECRETS_STORE_PATH, serviceName);
+    const newPath = path.join(SECRETS_STORE_PATH, newName);
 
     try {
       await fs.access(newPath);
@@ -98,7 +108,7 @@ router.delete('/:serviceName', isAuthenticated, async (req: Request, res: Respon
       return renderAlert(res, 'error', 'Invalid password', 401);
     }
 
-    const servicePath = path.join(PASSWORD_STORE_PATH, serviceName);
+    const servicePath = path.join(SECRETS_STORE_PATH, serviceName);
     await fs.rm(servicePath, { recursive: true, force: true });
 
     const services = await buildServicesTree();

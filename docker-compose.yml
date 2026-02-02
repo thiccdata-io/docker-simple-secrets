@@ -8,32 +8,67 @@ services:
       # - OAUTH2_ENABLED=true # This will dynamically load secrets from /var/secrets/$DSS_SERVICE_NAME
       - DSS_SERVICE_NAME=docker-simple-secrets
       - INSECURE_COOKIES=true # only for testing production when not behind reverse proxy
+      - NODE_ENV=production # change to 'production' for production
     volumes:
       - ./var/data:/var/data
-      - secrets-volume:/var/secrets
+      - docker_simple_secrets_data:/var/shared-secrets
       - /var/run/docker.sock:/var/run/docker.sock:ro
     restart: unless-stopped
 
+  ## Services verified to work with docker-simple-secrets
   example-service:
     image: postgres:16-alpine
     container_name: example-postgres
+    entrypoint: ['/bin/sh', '/var/secrets/dss-entrypoint-wrapper.sh']
     environment:
-      # ENV_VAR: /var/secrets/<service_name>/ENV_VAR
-      POSTGRES_PASSWORD_FILE: /var/secrets/postgres/POSTGRES_PASSWORD
+      POSTGRES_PASSWORD_FILE: /var/loaded/POSTGRES_PASSWORD
+    labels:
+      - dss.postgres.mount.POSTGRES_PASSWORD=/var/loaded/POSTGRES_PASSWORD
     volumes:
-      - secrets-volume:/var/secrets:ro
+      - docker_simple_secrets_data:/var/secrets:ro
       # - postgres-data:/var/lib/postgresql/data
 
-  example-wud:
-    image: getwud/wud
-    container_name: wud
-    entrypoint: ['/bin/sh', '/var/secrets/dss-entrypoint-wrapper.sh', 'whatsupdocker']
+  example-pocketid:
+    image: ghcr.io/pocket-id/pocket-id:v2
+    container_name: pocketid
+    entrypoint: ['/bin/sh', '/var/secrets/dss-entrypoint-wrapper.sh']
+    environment:
+      ENCRYPTION_KEY_FILE: /var/loaded/ENCRYPTION_KEY
+    labels:
+      - dss.pocketid.mount.ENCRYPTION_KEY=/var/loaded/ENCRYPTION_KEY
     volumes:
-      - secrets-volume:/var/secrets:ro
-      - /var/run/docker.sock:/var/run/docker.sock
+      - docker_simple_secrets_data:/var/secrets:ro
+
+  example-traefik:
+    image: traefik:v2.10
+    container_name: example-traefik
+    entrypoint: ['/bin/sh', '/var/secrets/dss-entrypoint-wrapper.sh']
+    environment:
+      CF_DNS_API_TOKEN_FILE: /var/loaded/CF_DNS_API_TOKEN
+    volumes:
+      - docker_simple_secrets_data:/var/secrets:ro
+    labels:
+      # service: traefik
+      ## CF_DNS_API_TOKEN
+      ## traefik.yml
+      ## dynamic_conf.yml
+      - dss.traefik.mount.*=/etc/traefik/
+
+  example-immich:
+    image: ghcr.io/immich-app/immich:latest
+    container_name: example-immich
+    entrypoint: ['/bin/sh', '/var/secrets/dss-entrypoint-wrapper.sh']
+    environment:
+      ## https://docs.immich.app/install/environment-variables#secrets
+      CREDENTIALS_DIRECTORY: /run/secrets
+      IMMICH_CONFIG_FILE: /run/secrets/config.json # or yml
+    labels:
+      - dss.immich.mount.*=/run/secrets
+    volumes:
+      - docker_simple_secrets_data:/var/secrets:ro
 
 volumes:
-  secrets-volume:
+  docker_simple_secrets_data:
     driver: local
     driver_opts:
       type: tmpfs

@@ -3,11 +3,16 @@ import path from 'path';
 export const PORT = process.env.PORT || 3000;
 
 // Use /var in production, ./var in development
-const BASE_DIR = process.env.NODE_ENV === 'production' ? '/var' : path.join(__dirname, '../..', 'var');
+const BASE_DIR = process.env.NODE_ENV !== 'development' ? '/var' : path.join(__dirname, '../..', 'var');
 export const DATA_DIR = path.join(BASE_DIR, 'data');
-export const PASSWORD_STORE_PATH = DATA_DIR;
-export const PASSWORD_VALIDATION_FILE = path.join(DATA_DIR, '.password-validation.gpg');
-export const DEPLOY_PATH = process.env.NODE_ENV === 'production' ? '/var/secrets' : path.join(__dirname, '../..', 'var', 'secrets');
+export const SECRETS_STORE_PATH = DATA_DIR;
+export const PASSWORD_VALIDATION_FILE = path.join(DATA_DIR, '.password-validation.aes');
+// Container-level secrets (for Docker Archive API injection)
+export const CONTAINER_SECRETS_PATH =
+  process.env.NODE_ENV !== 'development' ? '/var/secrets' : path.join(__dirname, '../..', 'var', 'secrets');
+// Shared secrets mount (tmpfs, only for mounted=true secrets)
+export const DEPLOY_PATH =
+  process.env.NODE_ENV !== 'development' ? '/var/shared-secrets' : path.join(__dirname, '../..', 'var', 'shared-secrets');
 
 // OAuth2 Configuration
 export const OAUTH2_ENABLED = process.env.OAUTH2_ENABLED === 'true';

@@ -1,107 +1,201 @@
 # Docker Simple Secrets
 
-A secure, web-based secrets management system designed for Docker environments. Manage encrypted secrets with GPG, deploy them to containers via environment variables or configuration files, and access everything through a simple HTMX interface with optional OAuth2 authentication.
+A secure, web-based secrets management system designed specifically for Docker environments. Manage encrypted secrets through a clean web interface and automatically deploy them to your containers - no complex orchestration tools required.
 
-## What Does It Do?
+## What Problem Does This Solve?
 
-Docker Simple Secrets solves the challenge of securely managing sensitive configuration for Docker containers. It provides:
+Docker Simple Secrets solves the universal challenge of **securely managing sensitive configuration** for containerized applications:
 
-### 🔐 Secure Secret Storage
+### 🔐 **Secrets Management**
 
-- Store secrets encrypted with GPG AES256 symmetric encryption
-- Web interface for creating, editing, and organizing secrets by service
+- Store API keys, passwords, tokens, and credentials encrypted at rest
+- Organize secrets by service (database, api, redis, etc.)
+- Create, edit, delete, and search secrets through a web interface
 - Bulk import from `.env` files
-- Fuzzy search across all secrets
+- Zero-trust: secrets encrypted with AES-256-GCM until deployment
 
-### 🚀 Two Deployment Modes
-
-**1. Environment Variables (Recommended)**
-
-- Secrets are decrypted and injected as environment variables into your containers
-- Use the included entrypoint script to automatically load secrets at container startup
-- Perfect for: database passwords, API keys, OAuth credentials, and any 12-factor app configuration
-
-**2. Configuration Files**
+### 📁 **Configuration File Management**
 
 - Store entire configuration files as encrypted secrets
-- Access decrypted files in a shared tmpfs volume
-- Perfect for: SSL certificates, JSON/YAML config files, SSH keys, or any file-based configuration
+- Perfect for SSL certificates, JSON/YAML configs, SSH keys, or any file-based configuration
+- Automatically inject files into running containers
+- No manual copying or mounting required
 
-### 🛡️ Security First
+### 🚀 **Automatic Deployment**
 
-- **GPG encryption** - Military-grade AES256 encryption for all secrets
-- **tmpfs deployment** - Decrypted secrets stored in memory-only volumes (never touch disk)
-- **Rate limiting** - Protection against brute force password attacks
-- **Memory-only password storage** - Master password never persisted to disk
-- **Optional OAuth2** - Add SSO with GitHub, GitLab, Google, Okta, or any OIDC provider
-
-### 📦 Smart Deployment
-
-- **Incremental updates** - Only redeploys changed secrets (MD5 tracking)
-- **Auto-deployment** - Secrets automatically deployed on first login
-- **Real-time status** - Visual indicators for deployed/changed/undeployed secrets
-
-## Features
-
-- 🔐 **GPG Symmetric Encryption** - Secrets encrypted with AES256
-- 🚀 **Auto-deployment** - Secrets automatically deployed to tmpfs on first login
-- 🔍 **Fuzzy Search** - Quickly find secrets across services
-- 📦 **Bulk Import** - Import multiple secrets from .env files
-- 🔄 **Incremental Deployment** - Only deploys changed secrets
-- 🛡️ **Rate Limiting** - Protection against brute force attacks
-- 🔑 **Optional OAuth2** - Single Sign-On support
-- 💾 **Memory-only Password Storage** - Passwords never persisted to disk
-- 🐳 **Container-Ready** - Drop-in entrypoint script for any Docker image
+- Deploy secrets to running containers with a single click
+- Secrets are automatically synced to labeled containers via Docker API
+- Incremental deployments - only changed secrets are updated (MD5 tracking)
+- tmpfs storage ensures secrets never touch disk
 
 ## Getting Started
 
-### Production Deployment (Docker)
+### ⚠️ Important: Run in Docker Only
 
-Docker Simple Secrets is designed to run in Docker. Use the provided `Dockerfile` and `docker-compose.yml`:
+Docker Simple Secrets is designed to run **inside Docker** to access the Docker socket and inject secrets into other containers. Running it outside Docker (bare metal/VM) is **not recommended** and will limit functionality.
+
+### Quick Start with Docker Compose
+
+Create a `docker-compose.yml`:
 
 ```yaml
 services:
+  # Docker Simple Secrets - Web UI for managing secrets
   docker-simple-secrets:
-    build: .
-    # Or use pre-built image:
-    # image: yourusername/docker-simple-secrets:latest
+    image: yourusername/docker-simple-secrets:latest
     container_name: docker-simple-secrets
     ports:
       - '3000:3000'
     environment:
-      - OAUTH2_ENABLED=true # Optional
+      - NODE_ENV=production
       - DSS_SERVICE_NAME=docker-simple-secrets
     volumes:
-      - ./var/data:/var/data # Persistent encrypted secrets
-      - secrets-volume:/var/secrets # Temporary decrypted secrets (tmpfs)
+      - /var/run/docker.sock:/var/run/docker.sock # Required: Docker API access
+      - ./data:/var/data # Persistent: encrypted secrets
+      - secrets-tmpfs:/var/shared-secrets # Shared: wrapper script + mounted secrets (tmpfs)
+    restart: unless-stopped
+
+  # Example: PostgreSQL using secrets via entrypoint wrapper (RECOMMENDED)
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    labels:
+      - 'dss.postgres.mount=/run/secrets' # Links service to secrets
+    environment:
+      - DSS_SERVICE_NAME=postgres
+    volumes:
+      - secrets-tmpfs:/var/shared-secrets:ro # Mount wrapper + secrets
+    entrypoint: ['/bin/sh', '/var/shared-secrets/dss-entrypoint-wrapper.sh']
+    command: ['docker-entrypoint.sh', 'postgres']
     restart: unless-stopped
 
 volumes:
-  secrets-volume:
+  secrets-tmpfs:
     driver: local
     driver_opts:
-      type: tmpfs
+      type: tmpfs # Memory-only storage
       device: tmpfs
       o: uid=1001,gid=1001,mode=700
 ```
 
-Then run:
+Start the stack:
 
 ```bash
 docker compose up -d
 ```
 
-Access the web interface at http://localhost:3000
+Access the web interface at **http://localhost:3000**
 
-### Development
+## Two Methods to Use Secrets
 
-For local development, see [DEVELOPMENT.md](DEVELOPMENT.md).
+### Method 1: Entrypoint Wrapper + Labels (⭐ RECOMMENDED)
+
+The preferred method. Use the provided `dss-entrypoint-wrapper.sh` script (automatically deployed to the shared tmpfs volume) combined with Docker labels to load secrets as environment variables.
+
+**How it works:**
+
+1. Add a `dss.<service-name>.mount` label to your container
+2. Mount the `secrets-tmpfs` volume (read-only)
+3. Set your container's entrypoint to use `/var/shared-secrets/dss-entrypoint-wrapper.sh`
+4. **Mark secrets as "mounted"** (click 🔒 to unlock 🔓 in the UI)
+5. Deploy secrets - the wrapper automatically exports them as environment variables
+6. Your original command executes with secrets available
+
+**Example:**
+
+```yaml
+services:
+  postgres:
+    image: postgres:16-alpine
+    labels:
+      - 'dss.postgres.mount=/run/secrets' # Links service to secrets
+    environment:
+      - DSS_SERVICE_NAME=postgres
+    volumes:
+      - secrets-tmpfs:/var/shared-secrets:ro
+    entrypoint: ['/bin/sh', '/var/shared-secrets/dss-entrypoint-wrapper.sh']
+    command: ['docker-entrypoint.sh', 'postgres'] # Your original command
+    # Wrapper loads secrets from /var/shared-secrets/postgres/ as env vars:
+    # POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB
+
+  redis:
+    image: redis:alpine
+    labels:
+      - 'dss.redis.mount=/run/secrets'
+    environment:
+      - DSS_SERVICE_NAME=redis
+    volumes:
+      - secrets-tmpfs:/var/shared-secrets:ro
+    entrypoint: ['/bin/sh', '/var/shared-secrets/dss-entrypoint-wrapper.sh']
+    command: ['redis-server', '--requirepass', '${REDIS_PASSWORD}']
+```
+
+**Note:** Only secrets with the "mounted" state (🔓) will be available in `/var/shared-secrets` for the wrapper to load.
+
+**Advantages:**
+
+- ✅ Automatic environment variable injection
+- ✅ Works with most container images
+- ✅ No code changes required in your application
+- ✅ Wrapper script provided in shared volume
+- ✅ Clean integration with Docker labels
+
+### Method 2: Direct File Reading (⚠️ When Wrapper Won't Work)
+
+For cases where the entrypoint wrapper doesn't work (complex entrypoint chains, specific initialization requirements), mount the shared tmpfs volume and read secrets as files directly in your application code.
+
+**How it works:**
+
+1. Mount the `secrets-tmpfs` volume to your container
+2. Create secrets in the web UI under your service name
+3. **Mark secrets as "mounted"** (click the 🔒 icon to unlock 🔓 in the UI)
+4. Deploy secrets - they appear at `/var/shared-secrets/<service-name>/`
+5. Your application reads files directly from the mounted path
+
+**Note:** Only secrets with the "mounted" state (🔓) will be deployed to `/var/shared-secrets`.
+
+**Example:**
+
+```yaml
+services:
+  nginx:
+    image: nginx:alpine
+    volumes:
+      - secrets-tmpfs:/var/shared-secrets:ro # Mount as read-only
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    # Access secrets at:
+    # /var/shared-secrets/nginx/ssl_cert.pem
+    # /var/shared-secrets/nginx/ssl_key.pem
+
+  api:
+    image: node:20-alpine
+    volumes:
+      - secrets-tmpfs:/var/shared-secrets:ro
+      - ./app:/app
+    working_dir: /app
+    command: node server.js
+    # In server.js:
+    # const apiKey = fs.readFileSync('/var/shared-secrets/api/API_KEY', 'utf8');
+```
+
+**When to use this method:**
+
+- Configuration files (SSL certificates, JSON/YAML configs, SSH keys)
+- Complex entrypoint scenarios where wrapper conflicts occur
+- Applications that prefer file-based secret loading
+- When you need full control over secret loading logic
+
+**Advantages:**
+
+- ✅ Full control over how secrets are loaded
+- ✅ Works with any programming language
+- ✅ Perfect for configuration files
+- ✅ Read-only mount prevents accidental modification
+- ✅ No entrypoint modification required
 
 ## Configuration
 
 ### Environment Variables
-
-Copy `.env.example` to `.env` and configure:
 
 ```bash
 # Basic Configuration
@@ -109,27 +203,56 @@ NODE_ENV=production
 PORT=3000
 SESSION_SECRET=generate-a-secure-random-string
 
+# Service Name (for self-hosting secrets)
+DSS_SERVICE_NAME=docker-simple-secrets
+
 # OAuth2 Configuration (Optional)
 OAUTH2_ENABLED=true
 OAUTH2_CLIENT_ID=your-client-id
 OAUTH2_CLIENT_SECRET=your-client-secret
 OAUTH2_ISSUER_URL=https://your-oauth-provider.com
-OAUTH2_PROVIDER_NAME=GitHub  # Optional, defaults to "OAuth2 Provider"
-OAUTH2_SCOPE=openid profile email  # Optional, defaults to "openid"
+OAUTH2_PROVIDER_NAME=GitHub
+OAUTH2_SCOPE=openid profile email
 
 # OAuth2 Endpoint URLs (Optional - if your provider uses non-standard paths)
 OAUTH2_AUTHORIZATION_URL=https://github.com/login/oauth/authorize
 OAUTH2_TOKEN_URL=https://github.com/login/oauth/access_token
 ```
 
+See [OAUTH2_SETUP.md](OAUTH2_SETUP.md) for provider-specific OAuth2 configuration.
+
 ### Directory Structure
 
-- Secrets: `/var/data/`
-- Deployment: `/secrets/`
+- **Encrypted secrets:** `/var/data/` (persistent, never exposed to containers)
+- **Shared secrets:** `/var/shared-secrets/` (tmpfs, memory-only, contains `dss-entrypoint-wrapper.sh` and deployed "mounted" secrets)
+- **Container-level secrets:** `/var/secrets/` (internal use only)
 
-## OAuth2 Setup
+## Security
 
-### Requirements
+### Encryption
+
+- **AES-256-GCM** - Authenticated encryption with Galois/Counter Mode
+- **Native Node.js crypto** - No external dependencies, pure JavaScript implementation
+- **scrypt key derivation** - 16384 iterations for password-based key generation
+- **Random salt & IV** - Each secret gets unique cryptographic parameters
+- **Authenticated encryption** - Integrity verification prevents tampering
+- **File format:** `.aes` extension with embedded metadata
+
+### Storage Security
+
+- **tmpfs deployment** - Decrypted secrets stored in memory-only volumes (never touch disk)
+- **Encrypted at rest** - All secrets stored with AES-256-GCM encryption
+- **Incremental deployment** - MD5 tracking ensures only changed secrets are redeployed
+- **Automatic cleanup** - Old/deleted secrets removed from deployment
+
+### Authentication & Authorization
+
+- **Rate limiting** - Maximum 5 password attempts per 5-minute window, 15-minute block after exceeding
+- **Memory-only password storage** - Master password kept in browser memory only, cleared on tab close
+- **Optional OAuth2** - Add SSO with GitHub, GitLab, Google, Okta, or any OIDC provider
+- **Session security** - HTTP-only cookies, secure cookies in production, 24-hour expiration
+
+## OAuth2 Setup (Optional)
 
 When `OAUTH2_ENABLED=true`, the following environment variables are required:
 
@@ -137,288 +260,147 @@ When `OAUTH2_ENABLED=true`, the following environment variables are required:
 - `OAUTH2_CLIENT_SECRET` - Your OAuth2 application client secret
 - `OAUTH2_ISSUER_URL` - The base URL of your OAuth2 provider
 - `OAUTH2_PROVIDER_NAME` - (Optional) Display name for the provider
-- `OAUTH2_SCOPE` - (Optional) Space-separated scopes, defaults to "openid"
-- `OAUTH2_AUTHORIZATION_URL` - (Optional) Full authorization endpoint URL
-- `OAUTH2_TOKEN_URL` - (Optional) Full token endpoint URL
 
-**OIDC Discovery:** The application automatically attempts to discover OAuth2 endpoints from `${OAUTH2_ISSUER_URL}/.well-known/openid-configuration`. If discovery fails or you need to override, set the explicit URLs.
+**OIDC Discovery:** The application automatically discovers OAuth2 endpoints from `${OAUTH2_ISSUER_URL}/.well-known/openid-configuration`.
 
-**Note:** If you get 404 errors, check the server logs to see which URLs are being used. See [OAUTH2_SETUP.md](OAUTH2_SETUP.md) for provider-specific configurations.
-
-### Callback URL
-
-Configure your OAuth2 application with the callback URL:
+**Callback URL:** Configure your OAuth2 application with:
 
 ```
 http://your-domain.com/auth/oauth2/callback
 ```
 
-### Supported Providers
+**Supported Providers:** GitHub, GitLab, Google, Okta, Auth0, Keycloak, or any OIDC-compliant provider.
 
-The OAuth2 implementation follows the standard OAuth2 protocol and should work with:
+See [OAUTH2_SETUP.md](OAUTH2_SETUP.md) for detailed provider-specific configurations.
 
-- GitHub
-- GitLab
-- Google
-- Okta
-- Auth0
-- Keycloak
-- Any OAuth2-compliant provider
+## Usage Examples
 
-### OAuth2 Flow
+### Example 1: Complete Web Stack
 
-1. User clicks "Sign in with [Provider]" button
-2. User is redirected to OAuth2 provider for authentication
-3. After successful authentication, user is redirected back
-4. User still needs to enter GPG password to decrypt secrets
-
-**Note:** OAuth2 authenticates the _user_, but the GPG password is still required to decrypt secrets. This provides two-factor security: OAuth2 for user identity and GPG password for secret access.
-
-## Password-Only Mode
-
-If `OAUTH2_ENABLED=false` or OAuth2 is not configured, the application uses password-only authentication:
-
-- Password validates against `.password-validation.gpg`
-- First-time setup creates the validation file
-- Rate limiting protects against brute force attacks
-- Password stored in memory only (cleared on tab close)
-
-## Security Features
-
-### GPG Encryption
-
-- Symmetric encryption with AES256 cipher
-- Passphrase files with mode 0o600 (read/write owner only)
-- Automatic cleanup of temporary passphrase files
-- Validation file hidden from UI (`.password-validation.gpg`)
-
-### Rate Limiting
-
-- Maximum 5 attempts per 5-minute window
-- 15-minute block after exceeding limit
-- Per-IP tracking
-
-### Session Security
-
-- HTTP-only cookies
-- Secure cookies in production
-- 24-hour session expiration
-- CSRF protection via session secret
-
-## Usage
-
-### Quick Start with Docker Compose
-
-````yaml
+```yaml
 services:
-  # Docker Simple Secrets - Web UI for managing secrets
   docker-simple-secrets:
     image: yourusername/docker-simple-secrets:latest
     ports:
       - '3000:3000'
     environment:
-      - OAUTH2_ENABLED=true  # Optional
       - DSS_SERVICE_NAME=docker-simple-secrets
     volumes:
-      - ./var/data:/var/data          # Encrypted secrets storage
-      - secrets-volume:/var/secrets   # Decrypted secrets (tmpfs)
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data:/var/data
+      - secrets-tmpfs:/var/shared-secrets
 
-  # Example: Any container can load secrets as environment variables
   postgres:
     image: postgres:16-alpine
+    labels:
+      - 'dss.postgres.mount=/run/secrets' # Links to postgres secrets
     environment:
       - DSS_SERVICE_NAME=postgres
-      - DSS_SERVICE_CMD=docker-entrypoint.sh postgres
     volumes:
-      - secret🚀 Deploy" button in the web UI
-2. Secrets are decrypted and deployed to the tmpfs volume at `/var/secrets/<service-name>/`
-3. Deployment status shown: ✓ deployed, 🔄 changed, ⚠️ undeployed
-4. Only changed secrets are redeployed (incremental, using MD5 hashing)
-5. The entrypoint script is automatically copied to `/var/secrets/entrypoint.sh`
+      - secrets-tmpfs:/var/shared-secrets:ro
+    entrypoint: ['/bin/sh', '/var/shared-secrets/dss-entrypoint-wrapper.sh']
+    command: ['docker-entrypoint.sh', 'postgres']
+    # Wrapper exports: POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB
 
-### How the Entrypoint Works
+  redis:
+    image: redis:alpine
+    labels:
+      - 'dss.redis.mount=/run/secrets'
+    environment:
+      - DSS_SERVICE_NAME=redis
+    volumes:
+      - secrets-tmpfs:/var/shared-secrets:ro
+    entrypoint: ['/bin/sh', '/var/shared-secrets/dss-entrypoint-wrapper.sh']
+    command: ['redis-server', '--requirepass', '${REDIS_PASSWORD}']
 
-The entrypoint script (`/var/secrets/entrypoint.sh`) loads secrets as environment variables:
+  api:
+    image: node:20-alpine
+    volumes:
+      - secrets-tmpfs:/var/shared-secrets:ro
+      - ./app:/app
+    working_dir: /app
+    command: node server.js
+    # In server.js: const apiKey = fs.readFileSync('/var/shared-secrets/api/API_KEY', 'utf8');
 
-1. Reads all files in `/var/secrets/$DSS_SERVICE_NAME/`
-2. Exports each filename as an environment variable with its contents as the value
-3. Executes your container's original command with secrets loaded
+volumes:
+  secrets-tmpfs:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: uid=1001,gid=1001,mode=700
+```
 
-**Example:**
-```bash
-# If you have these files:
-/var/secrets/postgres/POSTGRES_USER
-/var/secrets/postgres/POSTGRES_PASSWORD
-
-# The script exports:
-export POSTGRES_USER="<contents of POSTGRES_USER file>"
-export POSTGRES_PASSWORD="<contents of POSTGRES_PASSWORD file>"
-
-# Then runs your command:
-exec docker-entrypoint.sh postgres
-````
-
-### Real-World Examples
-
-**PostgreSQL with secrets:**
+### Example 2: Nginx with SSL Certificates (Direct File Reading)
 
 ```yaml
-postgres:
-  image: postgres:16-alpine
-  environment:
-    - DSS_SERVICE_NAME=postgres
-    - DSS_SERVICE_CMD=docker-entrypoint.sh postgres
-  volumes:
-    - secrets-volume:/var/secrets:ro
-  entrypoint: ['/bin/sh', '/var/secrets/entrypoint.sh', 'postgres']
+services:
+  docker-simple-secrets:
+    image: yourusername/docker-simple-secrets:latest
+    ports:
+      - '3000:3000'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data:/var/data
+      - secrets-tmpfs:/var/shared-secrets
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - '443:443'
+    volumes:
+      - secrets-tmpfs:/var/shared-secrets:ro
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    # In nginx.conf:
+    # ssl_certificate /var/shared-secrets/nginx/cert.pem;
+    # ssl_certificate_key /var/shared-secrets/nginx/key.pem;
+
+volumes:
+  secrets-tmpfs:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: uid=1001,gid=1001,mode=700
 ```
 
-**Node.js app with API keys:**
+## Web Interface
 
-```yaml
-api:
-  image: node:20-alpine
-  environment:
-    - DSS_SERVICE_NAME=api
-  volumes:
-    - secrets-volume:/var/secrets:ro
-    - ./app:/app
-  working_dir: /app
-  entrypoint: ['/bin/sh', '/var/secrets/entrypoint.sh', 'api']
-  command: ['node', 'server.js']
-```
+1. **First-time setup:** Set a master password (stored in browser memory only)
+2. **Create services:** Click "New Service" and name it (e.g., "postgres", "api")
+3. **Add secrets:** Click "New Secret" under a service, enter name and value
+4. **Bulk import:** Paste `.env` file content to import multiple secrets
+5. **Deploy:** Click "🚀 Deploy" - secrets are encrypted, deployed to tmpfs, and injected into labeled containers
+6. **Search:** Use fuzzy search to find secrets across all services
 
-**Nginx with SSL certificates (file-based):**
+### Deployment Status Indicators
 
-```yaml
-nginx:
-  image: nginx:alpine
-  volumes:
-    - secrets-volume:/var/secrets:ro
-  # Access certificate files directly:
-  # /var/secrets/nginx/ssl_cert.pem
-  # /var/secrets/nginx/ssl_key.pem
-```
+- ✓ **Deployed** - Secret is deployed and up-to-date
+- 🔄 **Changed** - Secret exists but has been modified since last deployment
+- ⚠️ **Undeployed** - Secret created but not yet deployed
 
-secrets-volume:
-driver: local
-driver_opts:
-type: tmpfs # Memory-only, never touches disk
-device: tmpfs
-o: uid=1001,gid=1001,mode=700
+## Development
 
-```
+For local development outside Docker, see [DEVELOPMENT.md](DEVELOPMENT.md).
 
-### Using Secrets as Environment Variables
-
-The entrypoint script automatically loads all secrets for your service as environment variables:
-
-**Step 1:** Create secrets in the web UI (http://localhost:3000):
-```
-
-Service: postgres
-Secrets:
-
-- POSTGRES_USER: myuser
-- POSTGRES_PASSWORD: supersecret
-- POSTGRES_DB: myapp
-
-````
-
-**Step 2:** Deploy secrets (click "🚀 Deploy" button)
-
-**Step 3:** Secrets are automatically available as environment variables in your container:
-```bash
-# Inside the postgres container:
-echo $POSTGRES_USER      # myuser
-echo $POSTGRES_PASSWORD  # supersecret
-echo $POSTGRES_DB        # myapp
-````
-
-### Using Secrets as Configuration Files
-
-You can also store entire configuration files as secrets:
-
-**Step 1:** Create a secret with file contents:
-
-```
-Service: nginx
-Secret name: nginx.conf
-Secret value:
-server {
-    listen 80;
-    server_name example.com;
-    ssl_certificate /var/secrets/nginx/ssl_cert.pem;
-    ...
-}
-```
-
-**Step 2:** Deploy and mount the secrets volume
-
-**Step 3:** Access files in your container:
-
-```bash
-# Inside the nginx container:
-cat /var/secrets/nginx/nginx.conf
-cat /var/secrets/nginx/ssl_cert.pem
-```
-
-### Environment Variables
-
-**For Docker Simple Secrets container:**
-
-- `DSS_SERVICE_NAME` - Service name for this instance (e.g., "docker-simple-secrets")
-- `OAUTH2_ENABLED` - Enable OAuth2 authentication (true/false)
-- `DATA_DIR` - Where encrypted secrets are stored (default: /var/data)
-- `SECRETS_DIR` - Where decrypted secrets are deployed (default: /var/secrets)
-
-**For containers loading secrets:**
-
-- `DSS_SERVICE_NAME` - Service name matching secrets in the web UI (e.g., "postgres", "redis")
-- `DSS_SERVICE_CMD` - Original command to run after loading secrets (optional)
-
-### Creating Services
-
-1. Click "New Service" and enter a service name
-2. Service names can only contain: letters, numbers, hyphens, underscores
-3. Service name should match the `DSS_SERVICE_NAME` in your docker-compose.yml
-
-### Adding Secrets
-
-1. Click "New Secret" under a service
-2. Enter secret name and value
-3. Secret is encrypted and stored
-
-### Bulk Import
-
-1. Click "Bulk Import" under a service
-2. Paste .env file content:
-   ```
-   DATABASE_URL=postgresql://localhost/db
-   API_KEY=sk-1234567890
-   ```
-3. All valid KEY=VALUE pairs are imported
-
-### Deployment
-
-1. Click the "Deploy All" button
-2. Secrets are decrypted and deployed to `/secrets/`
-3. Deployment status shown: ✓ deployed, 🔄 changed, ⚠️ undeployed
-4. Only changed secrets are redeployed (incremental)
-
-### Search
-
-Use the search box to filter secrets across all services with fuzzy matching.
+**Note:** Some features (like automatic injection via labels) require Docker socket access and won't work in development mode.
 
 ## Architecture
 
 - **Backend:** Express + TypeScript
 - **Frontend:** HTMX + EJS templates
-- **Encryption:** GPG (via shell commands)
+- **Encryption:** Native Node.js crypto (AES-256-GCM)
 - **Authentication:** Passport.js (OAuth2) + custom password validation
-- **Session:** express-session
+- **Session:** express-session with memory store
+- **Docker Integration:** HTTP API via Unix socket
 
 ## Code Style
+
+See [CODE_STYLE.md](CODE_STYLE.md) for project coding standards.
+
+## License
+
+MIT
 
 See [CODE_STYLE.md](CODE_STYLE.md) for project coding standards.
 

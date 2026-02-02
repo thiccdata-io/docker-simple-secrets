@@ -207,6 +207,22 @@ h2 {
   font-size: 0.875rem;
 }
 
+.btn-icon {
+  background: transparent;
+  color: inherit;
+  border: none;
+  padding: 0.25rem 0.5rem;
+  font-size: 1.2rem;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.btn-icon:hover {
+  transform: scale(1.2);
+  background: transparent;
+  box-shadow: none;
+}
+
 .input {
   padding: 0.75rem;
   border: 2px solid #e0e0e0;

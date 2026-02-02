@@ -38,6 +38,17 @@
           editForm.querySelector('input').focus();
         }
       }
+
+      // Toggle for secret renaming
+      function toggleSecretRename(serviceName, secretName) {
+        const renameForm = document.getElementById(`secret-rename-${serviceName}-${secretName}`);
+        if (renameForm) {
+          renameForm.style.display = renameForm.style.display === 'none' ? 'block' : 'none';
+          if (renameForm.style.display === 'block') {
+            renameForm.querySelector('input').focus();
+          }
+        }
+      }
     </script>
   </head>
   <body>
@@ -141,6 +152,8 @@
           <div id="password-result" class="result"></div>
         <% } %>
       </section>
+
+      <div id="services-container"></div>
     </div>
   </body>
 </html>

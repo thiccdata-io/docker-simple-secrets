@@ -53,16 +53,10 @@
           <input 
             type="text" 
             name="secretName" 
-            placeholder="Secret name (e.g., 'password')" 
+            placeholder="Secret name (e.g., 'DB_PASSWORD or config.php')" 
             required
             class="input input-small" />
-          <input 
-            type="password" 
-            name="secretValue" 
-            placeholder="Secret value" 
-            required
-            class="input input-small" />
-          <button type="submit" class="btn btn-primary btn-small">Save</button>
+          <button type="submit" class="btn btn-primary btn-small">Create</button>
           <button type="button" class="btn btn-secondary btn-small" onclick="this.parentElement.parentElement.style.display='none'">Cancel</button>
         </form>
       </div>
@@ -97,7 +91,7 @@
               <button 
                 class="secret-name-btn"
                 hx-get="/services/<%= service.name %>/secrets/<%= secret.name %>"
-                hx-target="#secret-value-<%= service.name %>-<%= secret.name %>"
+                hx-target="[data-secret-value='<%= service.name %>|<%= secret.name %>']"
                 hx-swap="innerHTML">
                 <%= secret.name %>
               </button>
@@ -108,7 +102,15 @@
               <% } else { %>
                 <span class="deployment-status status-deployed" title="Deployed and up to date">✓</span>
               <% } %>
-              <div id="secret-value-<%= service.name %>-<%= secret.name %>" class="secret-value-container"></div>
+              <button 
+                class="btn btn-icon"
+                title="<%= secret.mounted ? 'Unmount secret' : 'Mount secret' %>"
+                hx-post="/services/<%= service.name %>/secrets/<%= secret.name %>/toggle-mount"
+                hx-target="#services-list"
+                hx-swap="innerHTML">
+                <%= secret.mounted ? '🔓🌍' : '🔒' %>
+              </button>
+              <div data-secret-value="<%= service.name %>|<%= secret.name %>" class="secret-value-container"></div>
             </li>
           <% }); %>
         </ul>

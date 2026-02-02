@@ -12,6 +12,19 @@ declare global {
       id: string;
       accessToken?: string;
     }
+    interface Request {
+      containerInfo?: {
+        id: string;
+        name: string;
+        image: string;
+        ipAddress: string;
+        serviceName?: string;
+        labels: Record<string, string>;
+        entrypoint?: string[] | null;
+        args?: string[];
+        cmd?: string[] | null;
+      };
+    }
   }
 }
 

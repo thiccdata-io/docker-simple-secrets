@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import fs from 'fs/promises';
 import { checkRateLimit, resetRateLimit, isOAuth2Configured } from '../utils/auth';
-import { validatePassword, createPasswordValidation } from '../utils/gpg';
+import { validatePassword, createPasswordValidation } from '../utils/crypto';
 import { buildServicesTree } from '../utils/services';
 import { DEPLOY_PATH } from '../utils/config';
 import { renderAlert } from '../utils/render';

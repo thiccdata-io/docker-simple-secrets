@@ -26,10 +26,6 @@ LABEL org.opencontainers.image.source https://github.com/thiccdata-io/docker-sim
 # Install GPG for encryption/decryption
 RUN apk add --no-cache gnupg curl
 
-# Create group for file ownership (but run as root for Docker socket access)
-RUN addgroup -g 1001 secrets && \
-    adduser -D -u 1001 -G secrets secrets
-
 WORKDIR /app
 
 # Copy built application from builder
@@ -44,17 +40,6 @@ COPY src/dss-entrypoint-wrapper.sh ./dist/dss-entrypoint-wrapper.sh
 COPY static ./static
 COPY views ./views
 
-# Copy entrypoint wrapper
-COPY docker-entrypoint-wrapper.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
-
-
-# Set ownership of application files
-RUN chown -R secrets:secrets /app
-
-# Run as root to access Docker socket
-# USER secrets
-
 # Set environment to production
 ENV NODE_ENV=production
 
@@ -64,8 +49,6 @@ EXPOSE 3000
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD node -e "require('http').get('http://localhost:3000/healthz', (r) => r.statusCode === 200 ? process.exit(0) : process.exit(1))"
-
-ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 
 # Start the application
 CMD ["node", "dist/server.js"]

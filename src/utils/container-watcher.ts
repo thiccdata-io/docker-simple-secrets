@@ -1,13 +1,18 @@
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import fs from 'fs/promises';
 import path from 'path';
-import { DEPLOY_PATH } from './config';
+import * as http from 'http';
+import { DEPLOY_PATH, SECRETS_STORE_PATH } from './config';
+import { readSecretState } from './secret-state';
+import { dockerApiGet } from './docker';
 
-const execAsync = promisify(exec);
+/**
+ * This pattern might get deprecated, or migrated into a hot reload pattern
+ */
+
+const DOCKER_SOCK = '/var/run/docker.sock';
 
 let hasDeployedOnce = false;
-let watcherProcess: ReturnType<typeof exec> | null = null;
+let watcherRequest: http.ClientRequest | null = null;
 
 /**
  * Mark that a deployment has occurred, enabling the watcher to generate container info files
@@ -34,10 +39,7 @@ export async function generateContainerInfo(containerId: string): Promise<void> 
 
   try {
     // Get full container details
-    const { stdout: containerJson } = await execAsync(
-      `curl -s --unix-socket /var/run/docker.sock "http://localhost/containers/${containerId}/json"`,
-    );
-    const containerData = JSON.parse(containerJson);
+    const containerData = await dockerApiGet(`/containers/${containerId}/json`);
 
     if (containerData.message) {
       throw new Error(containerData.message);
@@ -54,17 +56,34 @@ export async function generateContainerInfo(containerId: string): Promise<void> 
       // First arg should be the service name
       const serviceName = args[1];
       const serviceDeployPath = path.join(DEPLOY_PATH, serviceName);
+      const serviceSecretsPath = path.join(SECRETS_STORE_PATH, serviceName);
 
       // Verify this is a known service
       try {
-        await fs.access(serviceDeployPath);
+        await fs.access(serviceSecretsPath);
+        // Check if any secrets are mounted (shared)
+        const secretFiles = await fs.readdir(serviceSecretsPath);
+        const secretNames = secretFiles.filter(file => file.endsWith('.aes')).map(file => file.replace('.aes', ''));
 
+        let hasMountedSecrets = false;
+        for (const secretName of secretNames) {
+          const state = await readSecretState(serviceName, secretName);
+          if (state.mounted) {
+            hasMountedSecrets = true;
+            break;
+          }
+        }
+
+        // Only create .container-info if service has mounted secrets
+        if (!hasMountedSecrets) {
+          return;
+        }
+
+        // Ensure deploy path exists
+        await fs.mkdir(serviceDeployPath, { recursive: true });
         // Get original image info
         const image = containerData.Config?.Image || '';
-        const { stdout: imageJson } = await execAsync(
-          `curl -s --unix-socket /var/run/docker.sock "http://localhost/images/${encodeURIComponent(image)}/json"`,
-        );
-        const imageData = JSON.parse(imageJson);
+        const imageData = await dockerApiGet(`/images/${encodeURIComponent(image)}/json`);
 
         if (imageData.message) {
           throw new Error(`Image inspection failed: ${imageData.message}`);
@@ -73,6 +92,12 @@ export async function generateContainerInfo(containerId: string): Promise<void> 
         // Extract original entrypoint and cmd from image
         const originalEntrypoint = imageData.Config?.Entrypoint || [];
         const originalCmd = imageData.Config?.Cmd || [];
+
+        // Get container labels
+        const labels = containerData.Config?.Labels || {};
+        const labelLines = Object.entries(labels).map(
+          ([key, value]) => `LABEL_${key.replace(/[^a-zA-Z0-9_]/g, '_').toUpperCase()}="${String(value).replace(/"/g, '\\"')}"`,
+        );
 
         // Write container info as a sourceable shell script
         // This is much more reliable than JSON parsing with sed
@@ -87,6 +112,9 @@ export async function generateContainerInfo(containerId: string): Promise<void> 
           `ORIGINAL_CMD="${cmdStr.replace(/"/g, '\\"')}"`,
           `ORIGINAL_IMAGE="${image.replace(/"/g, '\\"')}"`,
           `ORIGINAL_WORKDIR="${imageData.Config?.WorkingDir || ''}"`,
+          '',
+          '# Container Labels',
+          ...labelLines,
           '',
         ].join('\n');
 
@@ -111,81 +139,87 @@ export async function generateContainerInfo(containerId: string): Promise<void> 
  * Start watching for new Docker container start events
  */
 export function startContainerWatcher(): void {
-  if (watcherProcess) {
+  if (watcherRequest) {
     console.log('Container watcher already running');
     return;
   }
 
   console.log('Starting Docker container watcher...');
 
-  // Use curl to stream Docker events, filtering for container start events
-  // Note: The filters parameter needs to be properly URL-encoded
+  // Use http module to stream Docker events
   const filters = encodeURIComponent(JSON.stringify({ type: ['container'], event: ['start'] }));
-  watcherProcess = exec(
-    `curl -s --no-buffer --unix-socket /var/run/docker.sock "http://localhost/events?filters=${filters}"`,
-    { maxBuffer: 1024 * 1024 * 10 }, // 10MB buffer
-  );
+  const options = { socketPath: DOCKER_SOCK, path: `/events?filters=${filters}`, method: 'GET' };
 
-  if (watcherProcess.stdout) {
-    watcherProcess.stdout.on('data', async (data: Buffer) => {
-      try {
-        // Docker events API returns newline-delimited JSON
-        const lines = data
-          .toString()
-          .split('\n')
-          .filter(line => line.trim());
+  watcherRequest = http.get(options, res => {
+    console.log('✓ Container watcher started');
 
-        for (const line of lines) {
-          try {
-            const event = JSON.parse(line);
+    let buffer = '';
 
-            if (event.Type === 'container' && event.Action === 'start') {
-              const containerId = event.Actor?.ID || event.id;
-              if (containerId) {
-                console.log(`Container started: ${containerId.substring(0, 12)}`);
-                // Generate container info asynchronously
-                generateContainerInfo(containerId).catch(err => {
-                  console.error('Error generating container info:', err);
-                });
-              }
+    res.on('data', (chunk: Buffer) => {
+      buffer += chunk.toString();
+      const lines = buffer.split('\n');
+
+      // Keep the last incomplete line in the buffer
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+
+        try {
+          const event = JSON.parse(line);
+
+          if (event.Type === 'container' && event.Action === 'start') {
+            const containerId = event.Actor?.ID || event.id;
+            if (containerId) {
+              console.log(`Container started: ${containerId.substring(0, 12)}`);
+              // Generate container info asynchronously
+              generateContainerInfo(containerId).catch(err => {
+                console.error('Error generating container info:', err);
+              });
             }
-          } catch (parseErr) {
-            // Ignore JSON parse errors (incomplete lines)
           }
+        } catch (parseErr) {
+          // Ignore JSON parse errors
         }
-      } catch (err) {
-        console.error('Error processing Docker event:', err);
       }
     });
-  }
 
-  if (watcherProcess.stderr) {
-    watcherProcess.stderr.on('data', (data: Buffer) => {
-      console.error('Container watcher error:', data.toString());
-    });
-  }
+    res.on('end', () => {
+      console.log('Container watcher stream ended');
+      watcherRequest = null;
 
-  watcherProcess.on('close', code => {
-    console.log(`Container watcher stopped with code ${code}`);
-    watcherProcess = null;
-
-    // Auto-restart after a delay if it wasn't intentionally stopped
-    if (code !== 0 && code !== null) {
+      // Auto-restart after a delay
       console.log('Restarting container watcher in 5 seconds...');
       setTimeout(() => startContainerWatcher(), 5000);
-    }
+    });
+
+    res.on('error', err => {
+      console.error('Container watcher response error:', err);
+      watcherRequest = null;
+
+      // Auto-restart after a delay
+      console.log('Restarting container watcher in 5 seconds...');
+      setTimeout(() => startContainerWatcher(), 5000);
+    });
   });
 
-  console.log('✓ Container watcher started');
+  watcherRequest.on('error', err => {
+    console.error('Container watcher request error:', err);
+    watcherRequest = null;
+
+    // Auto-restart after a delay
+    console.log('Restarting container watcher in 5 seconds...');
+    setTimeout(() => startContainerWatcher(), 5000);
+  });
 }
 
 /**
  * Stop the container watcher
  */
 export function stopContainerWatcher(): void {
-  if (watcherProcess) {
+  if (watcherRequest) {
     console.log('Stopping container watcher...');
-    watcherProcess.kill();
-    watcherProcess = null;
+    watcherRequest.destroy();
+    watcherRequest = null;
   }
 }

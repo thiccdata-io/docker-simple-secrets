@@ -4,7 +4,7 @@ import { Strategy as OAuth2Strategy } from 'passport-oauth2';
 import fs from 'fs/promises';
 import path from 'path';
 import { RateLimitEntry } from './types';
-import { MAX_ATTEMPTS, BLOCK_DURATION_MS, ATTEMPT_WINDOW_MS, DEPLOY_PATH, OAUTH2_ENABLED } from './config';
+import { MAX_ATTEMPTS, BLOCK_DURATION_MS, ATTEMPT_WINDOW_MS, DEPLOY_PATH, OAUTH2_ENABLED, CONTAINER_SECRETS_PATH } from './config';
 
 const rateLimitMap = new Map<string, RateLimitEntry>();
 
@@ -50,7 +50,7 @@ export function isOAuth2Configured(): boolean {
 
 export async function loadSecretsFromFilesystem(serviceName: string): Promise<boolean> {
   try {
-    const secretsDir = path.join(DEPLOY_PATH, serviceName);
+    const secretsDir = path.join(CONTAINER_SECRETS_PATH, serviceName);
     const entries = await fs.readdir(secretsDir);
     const secretFiles = entries.filter(file => !file.endsWith('.md5'));
 
